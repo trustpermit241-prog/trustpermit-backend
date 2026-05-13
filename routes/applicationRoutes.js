@@ -8,7 +8,7 @@ const protect = require("../middleware/authMiddleware");
 const upload = require("../middleware/uploadMiddleware");
 
 const hashPermit = require("../utils/hashPermit");
-const saveHashToBlockchain = require("../services/solanaService");
+// const saveHashToBlockchain = require("../services/solanaService");
 
 // =====================================================
 // Get the latest application for logged-in citizen

@@ -1,23 +1,8 @@
 const express = require("express");
 const router = express.Router();
-const nodemailer = require("nodemailer");
 
 // Temporary in-memory OTP store
 const otpStore = {};
-
-// ================= EMAIL TRANSPORTER =================
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 465,
-  secure: true,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  connectionTimeout: 30000,
-  greetingTimeout: 30000,
-  socketTimeout: 30000,
-});
 
 // ================= SEND OTP =================
 router.post("/send-otp", async (req, res) => {
@@ -36,32 +21,31 @@ router.post("/send-otp", async (req, res) => {
       expires: Date.now() + 15 * 60 * 1000,
     };
 
-    await transporter.sendMail({
-      from: `"TrustPermit" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: "Your TrustPermit OTP Code",
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px;">
-          <h2>TrustPermit Email Verification</h2>
-          <p>Hello,</p>
-          <p>Your OTP verification code is:</p>
+    const emailResponse = await fetch(
+      "https://api.emailjs.com/api/v1.0/email/send",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          service_id: process.env.EMAILJS_SERVICE_ID,
+          template_id: process.env.EMAILJS_TEMPLATE_ID,
+          user_id: process.env.EMAILJS_PUBLIC_KEY,
+          template_params: {
+            name: "TrustPermit",
+            passcode: otp,
+            time: "15 minutes",
+            user_email: email,
+          },
+        }),
+      }
+    );
 
-          <h1 style="
-            letter-spacing: 4px;
-            background: #f1f5f9;
-            padding: 12px 18px;
-            display: inline-block;
-            border-radius: 8px;
-            color: #2563eb;
-          ">
-            ${otp}
-          </h1>
-
-          <p>This code will expire in 15 minutes.</p>
-          <p>If you did not request this, please ignore this email.</p>
-        </div>
-      `,
-    });
+    if (!emailResponse.ok) {
+      const errorText = await emailResponse.text();
+      throw new Error(errorText);
+    }
 
     console.log(`[OTP SENT] Code for ${email}: ${otp}`);
 

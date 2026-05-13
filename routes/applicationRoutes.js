@@ -8,7 +8,14 @@ const protect = require("../middleware/authMiddleware");
 const upload = require("../middleware/uploadMiddleware");
 
 const hashPermit = require("../utils/hashPermit");
-// const saveHashToBlockchain = require("../services/solanaService");
+
+// =====================================================
+// TEMPORARY: Blockchain disabled for Render deployment
+// =====================================================
+const saveHashToBlockchain = async () => {
+  console.log("⚠️ Blockchain disabled on Render deployment.");
+  return "BLOCKCHAIN_DISABLED";
+};
 
 // =====================================================
 // Get the latest application for logged-in citizen
@@ -187,8 +194,6 @@ router.get("/", protect, async (req, res) => {
 
 // =====================================================
 // Get single application by ID staff/admin
-// IMPORTANT: This must be placed after /my and /my-latest
-// and before /:id/status
 // =====================================================
 router.get("/:id", protect, async (req, res) => {
   try {
@@ -220,7 +225,6 @@ router.get("/:id", protect, async (req, res) => {
 
 // =====================================================
 // Update application status staff/admin
-// Blockchain runs only when status becomes Approved
 // =====================================================
 router.patch("/:id/status", protect, async (req, res) => {
   try {
@@ -319,7 +323,6 @@ router.patch("/:id/status", protect, async (req, res) => {
 // =====================================================
 router.post("/upload-documents", protect, upload.any(), async (req, res) => {
   try {
-    const userId = req.user._id || req.user.id;
     const { applicationId } = req.body;
 
     if (!applicationId) {

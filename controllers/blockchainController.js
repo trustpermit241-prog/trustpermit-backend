@@ -1,5 +1,5 @@
 const hashPermit = require("../utils/hashPermit");
-const saveHashToBlockchain = require("../services/solanaService");
+// const saveHashToBlockchain = require("../services/solanaService");
 
 const testBlockchain = async (req, res) => {
   try {

@@ -14,8 +14,7 @@ const path = require("path");
 // Connect to Solana Devnet
 const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
 
-// Automatically use the current Windows user wallet path
-// Example: C:\Users\cjgbe\.config\solana\id.json
+// Wallet path
 const walletPath = path.join(
   os.homedir(),
   ".config",
@@ -23,23 +22,30 @@ const walletPath = path.join(
   "id.json"
 );
 
-// Check if wallet exists
-if (!fs.existsSync(walletPath)) {
-  throw new Error(
-    `Solana wallet not found at ${walletPath}. Run: solana-keygen new --no-bip39-passphrase`
+// ===== TEMPORARY RENDER SAFE MODE =====
+let wallet = null;
+
+if (fs.existsSync(walletPath)) {
+  const secretKey = Uint8Array.from(
+    JSON.parse(fs.readFileSync(walletPath, "utf-8"))
   );
+
+  wallet = Keypair.fromSecretKey(secretKey);
+
+  console.log("✅ Solana wallet loaded");
+} else {
+  console.log("⚠️ Solana wallet not found. Blockchain disabled.");
 }
-
-// Load wallet
-const secretKey = Uint8Array.from(
-  JSON.parse(fs.readFileSync(walletPath, "utf-8"))
-);
-
-const wallet = Keypair.fromSecretKey(secretKey);
 
 // Send transaction
 const saveHashToBlockchain = async () => {
   try {
+    // Prevent crash if wallet missing
+    if (!wallet) {
+      console.log("⚠️ Skipping blockchain transaction");
+      return "BLOCKCHAIN_DISABLED";
+    }
+
     const transaction = new Transaction().add(
       SystemProgram.transfer({
         fromPubkey: wallet.publicKey,
@@ -59,7 +65,7 @@ const saveHashToBlockchain = async () => {
     return signature;
   } catch (error) {
     console.error("Solana Blockchain Error:", error);
-    throw error;
+    return "BLOCKCHAIN_ERROR";
   }
 };
 

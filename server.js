@@ -3,11 +3,10 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
-require("dotenv").config();
-
-// ===================== SOCKET.IO =====================
 const http = require("http");
 const { Server } = require("socket.io");
+const path = require("path");
+require("dotenv").config();
 
 // ===================== ROUTES =====================
 const authRoutes = require("./routes/authRoutes");
@@ -25,27 +24,69 @@ const User = require("./models/User");
 // ===================== EXPRESS APP =====================
 const app = express();
 
+// ===================== ALLOWED ORIGINS =====================
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:5173",
+
+  // ADD YOUR FRONTEND RENDER URL HERE
+  "https://trustpermit-frontend.onrender.com",
+
+  // BACKEND
+  "https://trustpermit-backend.onrender.com",
+];
+
+// ===================== CORS =====================
 app.use(
   cors({
-    origin: "*",
+    origin: (origin, callback) => {
+      // allow requests with no origin
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      console.log("❌ Blocked by CORS:", origin);
+
+      return callback(new Error("Not allowed by CORS"));
+    },
+
     credentials: true,
+
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+
+    allowedHeaders: [
+      "Origin",
+      "X-Requested-With",
+      "Content-Type",
+      "Accept",
+      "Authorization",
+    ],
   })
 );
 
+// ===================== BODY PARSER =====================
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// ===================== SOCKET SERVER =====================
+// ===================== HTTP SERVER =====================
 const server = http.createServer(app);
 
+// ===================== SOCKET.IO =====================
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
+    origin: allowedOrigins,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE"],
   },
+
+  transports: ["websocket", "polling"],
 });
 
 app.set("io", io);
 
+// ===================== SOCKET EVENTS =====================
 io.on("connection", (socket) => {
   console.log("🟢 User connected:", socket.id);
 
@@ -82,13 +123,16 @@ const createDefaultUser = async (role, email, password) => {
   }
 };
 
-// ===================== MONGODB CONNECTION =====================
+// ===================== MONGODB =====================
 mongoose
   .connect(
     process.env.MONGO_URI ||
-      "mongodb://localhost:27017/trustpermit"
+      "mongodb://127.0.0.1:27017/trustpermit",
+    {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    }
   )
-
   .then(async () => {
     console.log("✅ MongoDB connected");
 
@@ -104,7 +148,6 @@ mongoose
       "staff123"
     );
   })
-
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err);
   });
@@ -123,24 +166,15 @@ mongoose.connection.on("disconnected", () => {
 
 // ===================== API ROUTES =====================
 app.use("/api/auth", authRoutes);
-
 app.use("/api/clearance", clearanceRoutes);
-
 app.use("/api/otp", otpRoutes);
-
 app.use("/api/inspection", inspectionRoutes);
-
 app.use("/api/applications", applicationRoutes);
-
 app.use("/api/review", reviewRoutes);
-
 app.use("/api/logs", logRoutes);
-
 app.use("/api/blockchain", blockchainRoutes);
 
 // ===================== STATIC FILES =====================
-const path = require("path");
-
 app.use(
   "/uploads",
   express.static(path.join(__dirname, "uploads"))
@@ -170,7 +204,7 @@ app.get("/api/users", async (req, res) => {
   }
 });
 
-// ===================== ROOT ROUTES =====================
+// ===================== ROOT =====================
 app.get("/", (req, res) => {
   res.send("🚀 TrustPermit API running");
 });
@@ -194,12 +228,5 @@ const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
-
-  console.log(
-    `🌐 Local: http://localhost:${PORT}`
-  );
-
-  console.log(
-    `🌐 Network: http://192.168.100.31:${PORT}`
-  );
+  console.log(`🌐 Local: http://localhost:${PORT}`);
 });

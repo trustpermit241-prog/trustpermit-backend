@@ -18,7 +18,35 @@ const saveHashToBlockchain = async () => {
 };
 
 // =====================================================
-// Get the latest application for logged-in citizen
+// Get all applications for staff/admin
+// URL: GET /api/applications
+// =====================================================
+router.get("/", protect, async (req, res) => {
+  try {
+    const role = req.user.role;
+
+    if (role !== "staff" && role !== "admin") {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const applications = await Application.find()
+      .populate({ path: "citizenId", select: "fullName email" })
+      .populate({ path: "assignedStaff", select: "fullName email" })
+      .sort({ createdAt: -1 });
+
+    res.json(applications);
+  } catch (err) {
+    console.error("Fetch applications error:", err);
+    res.status(500).json({
+      message: "Failed to fetch applications",
+      error: err.message,
+    });
+  }
+});
+
+// =====================================================
+// Get latest application for logged-in citizen
+// URL: GET /api/applications/my-latest
 // =====================================================
 router.get("/my-latest", protect, async (req, res) => {
   try {
@@ -47,6 +75,7 @@ router.get("/my-latest", protect, async (req, res) => {
 
 // =====================================================
 // Get applications for logged-in citizen
+// URL: GET /api/applications/my
 // =====================================================
 router.get("/my", protect, async (req, res) => {
   try {
@@ -67,7 +96,8 @@ router.get("/my", protect, async (req, res) => {
 });
 
 // =====================================================
-// Create a new application citizen
+// Create new application
+// URL: POST /api/applications
 // =====================================================
 router.post("/", protect, async (req, res) => {
   try {
@@ -142,9 +172,10 @@ router.post("/", protect, async (req, res) => {
         ownershipType,
         lineOfBusiness,
       },
-      documents,
+      documents: documents || {},
       signature,
       documentStatuses: {},
+      status: "Pending",
     });
 
     const io = req.app.get("io");
@@ -167,41 +198,13 @@ router.post("/", protect, async (req, res) => {
 });
 
 // =====================================================
-// Get all applications staff/admin
-// =====================================================
-router.get("/", protect, async (req, res) => {
-  try {
-    const role = req.user.role;
-
-    if (role !== "staff" && role !== "admin") {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    const applications = await Application.find()
-      .populate({ path: "citizenId", select: "fullName email" })
-      .populate({ path: "assignedStaff", select: "fullName email" })
-      .sort({ createdAt: -1 });
-
-    res.json(applications);
-  } catch (err) {
-    console.error("Fetch applications error:", err);
-    res.status(500).json({
-      message: "Failed to fetch applications",
-      error: err.message,
-    });
-  }
-});
-
-// =====================================================
-// Get single application by ID staff/admin
+// Get single application by ID
+// URL: GET /api/applications/:id
 // =====================================================
 router.get("/:id", protect, async (req, res) => {
   try {
     const role = req.user.role;
-
-    if (role !== "staff" && role !== "admin") {
-      return res.status(403).json({ message: "Access denied" });
-    }
+    const userId = req.user._id || req.user.id;
 
     const application = await Application.findById(req.params.id)
       .populate({ path: "citizenId", select: "fullName email" })
@@ -211,6 +214,16 @@ router.get("/:id", protect, async (req, res) => {
       return res.status(404).json({
         message: "Application not found",
       });
+    }
+
+    const ownerId = application.citizenId?._id || application.citizenId;
+
+    if (
+      role !== "staff" &&
+      role !== "admin" &&
+      ownerId.toString() !== userId.toString()
+    ) {
+      return res.status(403).json({ message: "Access denied" });
     }
 
     res.json(application);
@@ -224,7 +237,8 @@ router.get("/:id", protect, async (req, res) => {
 });
 
 // =====================================================
-// Update application status staff/admin
+// Update application status
+// URL: PATCH /api/applications/:id/status
 // =====================================================
 router.patch("/:id/status", protect, async (req, res) => {
   try {
@@ -319,7 +333,8 @@ router.patch("/:id/status", protect, async (req, res) => {
 });
 
 // =====================================================
-// Upload application documents citizen
+// Upload application documents
+// URL: POST /api/applications/upload-documents
 // =====================================================
 router.post("/upload-documents", protect, upload.any(), async (req, res) => {
   try {

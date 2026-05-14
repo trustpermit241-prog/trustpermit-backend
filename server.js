@@ -29,32 +29,35 @@ const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:5173",
 
-  // ADD YOUR FRONTEND RENDER URL HERE
+  // FRONTEND URL
   "https://trustpermit-frontend.onrender.com",
 
-  // BACKEND
+  // BACKEND URL
   "https://trustpermit-backend.onrender.com",
 ];
 
 // ===================== CORS =====================
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // allow requests with no origin
-      if (!origin) return callback(null, true);
-
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.log("❌ Blocked by CORS:", origin);
+        callback(new Error("Not allowed by CORS"));
       }
-
-      console.log("❌ Blocked by CORS:", origin);
-
-      return callback(new Error("Not allowed by CORS"));
     },
 
     credentials: true,
 
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS",
+    ],
 
     allowedHeaders: [
       "Origin",
@@ -70,10 +73,9 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ===================== HTTP SERVER =====================
+// ===================== SOCKET SERVER =====================
 const server = http.createServer(app);
 
-// ===================== SOCKET.IO =====================
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
@@ -123,15 +125,11 @@ const createDefaultUser = async (role, email, password) => {
   }
 };
 
-// ===================== MONGODB =====================
+// ===================== MONGODB CONNECTION =====================
 mongoose
   .connect(
     process.env.MONGO_URI ||
-      "mongodb://127.0.0.1:27017/trustpermit",
-    {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    }
+      "mongodb://127.0.0.1:27017/trustpermit"
   )
   .then(async () => {
     console.log("✅ MongoDB connected");
@@ -152,6 +150,7 @@ mongoose
     console.error("❌ MongoDB connection error:", err);
   });
 
+// ===================== MONGOOSE EVENTS =====================
 mongoose.connection.on("connected", () => {
   console.log("✅ MongoDB connection established");
 });
@@ -204,7 +203,7 @@ app.get("/api/users", async (req, res) => {
   }
 });
 
-// ===================== ROOT =====================
+// ===================== ROOT ROUTES =====================
 app.get("/", (req, res) => {
   res.send("🚀 TrustPermit API running");
 });

@@ -1,6 +1,15 @@
 const express = require("express");
 const router = express.Router();
 
+const {
+  Connection,
+  Keypair,
+  PublicKey,
+  Transaction,
+  TransactionInstruction,
+  sendAndConfirmTransaction,
+} = require("@solana/web3.js");
+
 const Application = require("../models/Application");
 const BlockchainRecord = require("../models/BlockchainRecord");
 
@@ -9,12 +18,44 @@ const upload = require("../middleware/uploadMiddleware");
 
 const hashPermit = require("../utils/hashPermit");
 
+const MEMO_PROGRAM_ID = new PublicKey(
+  "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
+);
+
 // =====================================================
-// TEMPORARY: Blockchain disabled for Render deployment
+// Save permit hash to Solana Devnet
 // =====================================================
-const saveHashToBlockchain = async () => {
-  console.log("⚠️ Blockchain disabled on Render deployment.");
-  return "BLOCKCHAIN_DISABLED";
+const saveHashToBlockchain = async (hash) => {
+  if (!process.env.SOLANA_SECRET_KEY) {
+    throw new Error("SOLANA_SECRET_KEY is missing in .env");
+  }
+
+  const secretKey = Uint8Array.from(JSON.parse(process.env.SOLANA_SECRET_KEY));
+
+  const payer = Keypair.fromSecretKey(secretKey);
+
+  const connection = new Connection(
+    process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
+    "confirmed"
+  );
+
+  const memoText = `TrustPermit:${hash}`;
+
+  const instruction = new TransactionInstruction({
+    keys: [],
+    programId: MEMO_PROGRAM_ID,
+    data: Buffer.from(memoText, "utf8"),
+  });
+
+  const transaction = new Transaction().add(instruction);
+
+  const signature = await sendAndConfirmTransaction(connection, transaction, [
+    payer,
+  ]);
+
+  console.log("✅ Solana transaction:", signature);
+
+  return signature;
 };
 
 // =====================================================
@@ -46,7 +87,6 @@ router.get("/", protect, async (req, res) => {
 
 // =====================================================
 // Get latest application for logged-in citizen
-// URL: GET /api/applications/my-latest
 // =====================================================
 router.get("/my-latest", protect, async (req, res) => {
   try {
@@ -75,7 +115,6 @@ router.get("/my-latest", protect, async (req, res) => {
 
 // =====================================================
 // Get applications for logged-in citizen
-// URL: GET /api/applications/my
 // =====================================================
 router.get("/my", protect, async (req, res) => {
   try {
@@ -97,7 +136,6 @@ router.get("/my", protect, async (req, res) => {
 
 // =====================================================
 // Create new application
-// URL: POST /api/applications
 // =====================================================
 router.post("/", protect, async (req, res) => {
   try {
@@ -199,7 +237,6 @@ router.post("/", protect, async (req, res) => {
 
 // =====================================================
 // Get single application by ID
-// URL: GET /api/applications/:id
 // =====================================================
 router.get("/:id", protect, async (req, res) => {
   try {
@@ -238,7 +275,6 @@ router.get("/:id", protect, async (req, res) => {
 
 // =====================================================
 // Update application status
-// URL: PATCH /api/applications/:id/status
 // =====================================================
 router.patch("/:id/status", protect, async (req, res) => {
   try {
@@ -297,7 +333,7 @@ router.patch("/:id/status", protect, async (req, res) => {
           approvedAt: new Date(),
         });
 
-        const transactionSignature = await saveHashToBlockchain();
+        const transactionSignature = await saveHashToBlockchain(hash);
 
         blockchainRecord = await BlockchainRecord.create({
           permitId: application._id,
@@ -334,7 +370,6 @@ router.patch("/:id/status", protect, async (req, res) => {
 
 // =====================================================
 // Upload application documents
-// URL: POST /api/applications/upload-documents
 // =====================================================
 router.post("/upload-documents", protect, upload.any(), async (req, res) => {
   try {

@@ -174,13 +174,15 @@ app.use("/api/auth", authRoutes);
 app.use("/api/clearance", clearanceRoutes);
 app.use("/api/otp", otpRoutes);
 app.use("/api/inspection", inspectionRoutes);
-app.use("/api/applications", applicationRoutes);
 
 // ===================== UPLOAD DOCUMENTS ROUTE =====================
 app.use(
   "/api/applications/upload-documents",
   uploadDocumentsRoutes
 );
+
+// ===================== APPLICATION ROUTES =====================
+app.use("/api/applications", applicationRoutes);
 
 app.use("/api/logs", logRoutes);
 app.use("/api/blockchain", blockchainRoutes);

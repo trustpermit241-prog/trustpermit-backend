@@ -22,7 +22,6 @@ const storage = multer.diskStorage({
 
   filename: (req, file, cb) => {
     const safeName = file.originalname.replace(/\s+/g, "-");
-
     cb(null, `${Date.now()}-${safeName}`);
   },
 });
@@ -31,10 +30,11 @@ const upload = multer({
   storage,
 
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB
+    fileSize: 10 * 1024 * 1024,
   },
 });
 
+// ===================== UPLOAD DOCUMENTS =====================
 router.post(
   "/",
   authMiddleware,
@@ -60,48 +60,29 @@ router.post(
         : [req.body.documentNames];
 
       const documents = req.files.map((file, index) => ({
-        documentName:
-          documentNames[index] || file.originalname,
-
+        applicationId,
+        documentName: documentNames[index] || file.originalname,
         originalName: file.originalname,
-
         fileName: file.filename,
-
         filePath: `/uploads/documents/${file.filename}`,
-
         mimeType: file.mimetype,
-
         size: file.size,
-
+        uploadedBy: req.user?._id || req.user?.id,
+        status: "Pending",
         uploadedAt: new Date(),
       }));
 
-      // ===================== SAVE TO uploadeddocuments COLLECTION =====================
-      await UploadedDocument.insertMany(
-        documents.map((doc) => ({
-          applicationId,
+      const savedDocuments = await UploadedDocument.insertMany(documents);
 
-          ...doc,
-
-          uploadedBy:
-            req.user?._id || req.user?.id,
-
-          status: "Pending",
-        }))
-      );
-
-      // ===================== SAVE TO APPLICATION =====================
-      const application =
-        await Application.findByIdAndUpdate(
-          applicationId,
-          {
-            $set: {
-              documents,
-              documentsUploaded: true,
-            },
+      const application = await Application.findByIdAndUpdate(
+        applicationId,
+        {
+          $set: {
+            documentsUploaded: true,
           },
-          { new: true }
-        );
+        },
+        { new: true }
+      );
 
       if (!application) {
         return res.status(404).json({
@@ -110,25 +91,39 @@ router.post(
       }
 
       return res.status(200).json({
-        message:
-          "Documents uploaded successfully",
-
+        message: "Documents uploaded successfully",
+        documents: savedDocuments,
         application,
       });
     } catch (error) {
-      console.error(
-        "Upload documents error:",
-        error
-      );
+      console.error("Upload documents error:", error);
 
       return res.status(500).json({
-        message:
-          "Failed to upload documents",
-
+        message: "Failed to upload documents",
         error: error.message,
       });
     }
   }
 );
+
+// ===================== FETCH DOCUMENTS BY APPLICATION ID =====================
+router.get("/:applicationId", authMiddleware, async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+
+    const documents = await UploadedDocument.find({
+      applicationId,
+    }).sort({ createdAt: -1 });
+
+    return res.status(200).json(documents);
+  } catch (error) {
+    console.error("Fetch uploaded documents error:", error);
+
+    return res.status(500).json({
+      message: "Failed to fetch uploaded documents",
+      error: error.message,
+    });
+  }
+});
 
 module.exports = router;

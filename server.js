@@ -14,9 +14,9 @@ const clearanceRoutes = require("./routes/clearanceRoutes");
 const otpRoutes = require("./routes/otpRoutes");
 const inspectionRoutes = require("./routes/inspection");
 const applicationRoutes = require("./routes/applicationRoutes");
+const uploadDocumentsRoutes = require("./routes/uploadDocumentsRoutes");
 const logRoutes = require("./routes/logRoutes");
 const blockchainRoutes = require("./routes/blockchainRoutes");
-const reviewRoutes = require("./routes/reviewRoutes");
 
 // ===================== MODELS =====================
 const User = require("./models/User");
@@ -72,6 +72,12 @@ app.use(
 // ===================== BODY PARSER =====================
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// ===================== STATIC FILES =====================
+app.use(
+  "/uploads",
+  express.static(path.join(__dirname, "uploads"))
+);
 
 // ===================== SOCKET SERVER =====================
 const server = http.createServer(app);
@@ -169,15 +175,15 @@ app.use("/api/clearance", clearanceRoutes);
 app.use("/api/otp", otpRoutes);
 app.use("/api/inspection", inspectionRoutes);
 app.use("/api/applications", applicationRoutes);
-app.use("/api/review", reviewRoutes);
+
+// ===================== UPLOAD DOCUMENTS ROUTE =====================
+app.use(
+  "/api/applications/upload-documents",
+  uploadDocumentsRoutes
+);
+
 app.use("/api/logs", logRoutes);
 app.use("/api/blockchain", blockchainRoutes);
-
-// ===================== STATIC FILES =====================
-app.use(
-  "/uploads",
-  express.static(path.join(__dirname, "uploads"))
-);
 
 // ===================== USERS ROUTE =====================
 app.get("/api/users", async (req, res) => {

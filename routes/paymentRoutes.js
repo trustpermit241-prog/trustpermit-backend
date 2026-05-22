@@ -1,11 +1,12 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const router = express.Router();
 const Payment = require("../models/Payment");
 
 // CREATE PAYMENT
 router.post("/", async (req, res) => {
   try {
-    const { userId, name, email, amount, paymentMethod } = req.body;
+    let { userId, name, email, amount, paymentMethod } = req.body;
 
     if (!name || !email || !amount || !paymentMethod) {
       return res.status(400).json({
@@ -14,17 +15,28 @@ router.post("/", async (req, res) => {
       });
     }
 
-    const referenceNumber = "PAY-" + Date.now();
+    paymentMethod = String(paymentMethod).toLowerCase();
 
-    const payment = await Payment.create({
-      userId: userId || null,
+    if (!["card", "gcash"].includes(paymentMethod)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payment method.",
+      });
+    }
+
+    const paymentData = {
       name,
       email,
-      amount,
+      amount: Number(amount),
       paymentMethod,
-      referenceNumber,
       status: "paid",
-    });
+    };
+
+    if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+      paymentData.userId = userId;
+    }
+
+    const payment = await Payment.create(paymentData);
 
     res.status(201).json({
       success: true,
@@ -35,7 +47,7 @@ router.post("/", async (req, res) => {
     console.error("Payment error:", error);
     res.status(500).json({
       success: false,
-      message: "Server error while saving payment.",
+      message: error.message || "Server error while saving payment.",
     });
   }
 });
@@ -52,6 +64,7 @@ router.get("/", async (req, res) => {
       payments,
     });
   } catch (error) {
+    console.error("Fetch payments error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to fetch payments.",

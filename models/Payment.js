@@ -11,11 +11,13 @@ const paymentSchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
+      trim: true,
     },
 
     email: {
       type: String,
       required: true,
+      trim: true,
     },
 
     amount: {
@@ -25,20 +27,15 @@ const paymentSchema = new mongoose.Schema(
 
     paymentMethod: {
       type: String,
-      enum: ["card", "gcash"],
       required: true,
+      lowercase: true,
+      enum: ["card", "gcash"],
     },
 
     status: {
       type: String,
       enum: ["pending", "paid", "failed"],
       default: "paid",
-    },
-
-    referenceNumber: {
-      type: String,
-      required: true,
-      unique: true,
     },
   },
   { timestamps: true }

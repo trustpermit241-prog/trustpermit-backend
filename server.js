@@ -18,6 +18,9 @@ const uploadDocumentsRoutes = require("./routes/uploadDocumentsRoutes");
 const logRoutes = require("./routes/logRoutes");
 const blockchainRoutes = require("./routes/blockchainRoutes");
 
+// ===================== PAYMENT ROUTES =====================
+const paymentRoutes = require("./routes/paymentRoutes");
+
 // ===================== MODELS =====================
 const User = require("./models/User");
 
@@ -186,6 +189,9 @@ app.use("/api/applications", applicationRoutes);
 
 app.use("/api/logs", logRoutes);
 app.use("/api/blockchain", blockchainRoutes);
+
+// ===================== PAYMENT ROUTES =====================
+app.use("/api/payments", paymentRoutes);
 
 // ===================== USERS ROUTE =====================
 app.get("/api/users", async (req, res) => {

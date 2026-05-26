@@ -6,7 +6,8 @@ const paymentSchema = new mongoose.Schema(
     applicationId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Application",
-      required: true,
+      required: false,
+      default: null,
     },
 
     // User who paid
@@ -14,6 +15,7 @@ const paymentSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: false,
+      default: null,
     },
 
     // Payer name

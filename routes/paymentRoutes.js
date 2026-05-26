@@ -25,11 +25,15 @@ const saveHashToBlockchain = async (hash) => {
     throw new Error("SOLANA_SECRET_KEY is missing in .env");
   }
 
-  const secretKey = Uint8Array.from(JSON.parse(process.env.SOLANA_SECRET_KEY));
+  const secretKey = Uint8Array.from(
+    JSON.parse(process.env.SOLANA_SECRET_KEY)
+  );
+
   const payer = Keypair.fromSecretKey(secretKey);
 
   const connection = new Connection(
-    process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
+    process.env.SOLANA_RPC_URL ||
+      "https://api.devnet.solana.com",
     "confirmed"
   );
 
@@ -39,9 +43,15 @@ const saveHashToBlockchain = async (hash) => {
     data: Buffer.from(`TrustPermit:${hash}`, "utf8"),
   });
 
-  const transaction = new Transaction().add(instruction);
+  const transaction = new Transaction().add(
+    instruction
+  );
 
-  return await sendAndConfirmTransaction(connection, transaction, [payer]);
+  return await sendAndConfirmTransaction(
+    connection,
+    transaction,
+    [payer]
+  );
 };
 
 // CREATE PAYMENT
@@ -56,32 +66,29 @@ router.post("/", async (req, res) => {
       paymentMethod,
     } = req.body;
 
-    if (!applicationId || !name || !email || !amount || !paymentMethod) {
+    // FIXED VALIDATION
+    if (
+      !name ||
+      !email ||
+      !amount ||
+      !paymentMethod
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Please complete all payment fields including applicationId.",
+        message:
+          "Please complete all payment fields.",
       });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(applicationId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid application ID.",
-      });
-    }
+    paymentMethod = String(
+      paymentMethod
+    ).toLowerCase();
 
-    const application = await Application.findById(applicationId);
-
-    if (!application) {
-      return res.status(404).json({
-        success: false,
-        message: "Application not found.",
-      });
-    }
-
-    paymentMethod = String(paymentMethod).toLowerCase();
-
-    if (!["card", "gcash"].includes(paymentMethod)) {
+    if (
+      !["card", "gcash"].includes(
+        paymentMethod
+      )
+    ) {
       return res.status(400).json({
         success: false,
         message: "Invalid payment method.",
@@ -89,7 +96,8 @@ router.post("/", async (req, res) => {
     }
 
     const paymentData = {
-      applicationId,
+      applicationId:
+        applicationId || null,
       name,
       email,
       amount: Number(amount),
@@ -98,23 +106,36 @@ router.post("/", async (req, res) => {
       permitReleased: false,
     };
 
-    if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+    if (
+      userId &&
+      mongoose.Types.ObjectId.isValid(
+        userId
+      )
+    ) {
       paymentData.userId = userId;
     }
 
-    const payment = await Payment.create(paymentData);
+    const payment = await Payment.create(
+      paymentData
+    );
 
     res.status(201).json({
       success: true,
-      message: "Payment saved successfully.",
+      message:
+        "Payment saved successfully.",
       payment,
     });
   } catch (error) {
-    console.error("Payment error:", error);
+    console.error(
+      "Payment error:",
+      error
+    );
 
     res.status(500).json({
       success: false,
-      message: error.message || "Server error while saving payment.",
+      message:
+        error.message ||
+        "Server error while saving payment.",
     });
   }
 });
@@ -123,7 +144,10 @@ router.post("/", async (req, res) => {
 router.get("/", async (req, res) => {
   try {
     const payments = await Payment.find()
-      .populate("userId", "name email fullName")
+      .populate(
+        "userId",
+        "name email fullName"
+      )
       .populate("applicationId")
       .populate("blockchainRecord")
       .sort({ createdAt: -1 });
@@ -133,130 +157,63 @@ router.get("/", async (req, res) => {
       payments,
     });
   } catch (error) {
-    console.error("Fetch payments error:", error);
+    console.error(
+      "Fetch payments error:",
+      error
+    );
 
     res.status(500).json({
       success: false,
-      message: "Failed to fetch payments.",
+      message:
+        "Failed to fetch payments.",
     });
   }
 });
 
-// APPROVE PAYMENT + RELEASE PERMIT + SOLANA BLOCKCHAIN
-router.put("/:id/approve-release", async (req, res) => {
-  try {
-    const payment = await Payment.findById(req.params.id).populate(
-      "applicationId"
-    );
+// APPROVE PAYMENT + RELEASE PERMIT
+router.put(
+  "/:id/approve-release",
+  async (req, res) => {
+    try {
+      const payment =
+        await Payment.findById(
+          req.params.id
+        ).populate("applicationId");
 
-    if (!payment) {
-      return res.status(404).json({
-        success: false,
-        message: "Payment not found.",
-      });
-    }
+      if (!payment) {
+        return res.status(404).json({
+          success: false,
+          message: "Payment not found.",
+        });
+      }
 
-    if (payment.permitReleased) {
-      const existingPayment = await Payment.findById(payment._id)
-        .populate("userId", "name email fullName")
-        .populate("applicationId")
-        .populate("blockchainRecord");
+      payment.status = "approved";
+      payment.permitReleased = true;
+      payment.permitReleasedAt =
+        new Date();
 
-      return res.json({
+      await payment.save();
+
+      res.json({
         success: true,
-        message: "Permit already released.",
-        payment: existingPayment,
+        message:
+          "Payment approved and permit released.",
+        payment,
       });
-    }
+    } catch (error) {
+      console.error(
+        "Approve release error:",
+        error
+      );
 
-    const application = payment.applicationId;
-
-    if (!application) {
-      return res.status(404).json({
+      res.status(500).json({
         success: false,
-        message: "Connected application not found.",
+        message:
+          error.message ||
+          "Failed to approve payment.",
       });
     }
-
-    const frontendUrl =
-      process.env.FRONTEND_URL || "https://trustpermit-frontend.onrender.com";
-
-    const verificationUrl = `${frontendUrl}/verify/${application._id}`;
-
-    const hash = hashPermit({
-      permitId: application._id,
-      paymentId: payment._id,
-      businessName: application.businessName,
-      applicationType: application.applicationType,
-      applicant: application.applicant,
-      businessDetails: application.businessDetails,
-      amount: payment.amount,
-      paymentMethod: payment.paymentMethod,
-      verificationUrl,
-      releasedAt: new Date(),
-    });
-
-    const transactionSignature = await saveHashToBlockchain(hash);
-
-    const blockchainRecord = await BlockchainRecord.create({
-      permitId: application._id,
-      paymentId: payment._id,
-      hash,
-      transactionSignature,
-      verificationUrl,
-    });
-
-    await Application.findByIdAndUpdate(
-      application._id,
-      {
-        status: "Approved",
-      },
-      { new: true }
-    );
-
-    payment.status = "approved";
-    payment.permitReleased = true;
-    payment.permitReleasedAt = new Date();
-    payment.verificationUrl = verificationUrl;
-    payment.blockchainRecord = blockchainRecord._id;
-
-    await payment.save();
-
-    const updatedPayment = await Payment.findById(payment._id)
-      .populate("userId", "name email fullName")
-      .populate("applicationId")
-      .populate("blockchainRecord");
-
-    const io = req.app.get("io");
-
-    if (io) {
-      io.emit("payment-approved-permit-released", {
-        payment: updatedPayment,
-        applicationId: application._id,
-        blockchainRecord,
-      });
-
-      io.emit("application-status-updated", {
-        applicationId: application._id,
-        status: "Approved",
-      });
-    }
-
-    res.json({
-      success: true,
-      message: "Payment approved, permit released, QR ready, and Solana proof created.",
-      payment: updatedPayment,
-      blockchainRecord,
-      qrValue: verificationUrl,
-    });
-  } catch (error) {
-    console.error("Approve release error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to approve payment and release permit.",
-    });
   }
-});
+);
 
 module.exports = router;

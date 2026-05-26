@@ -121,6 +121,7 @@ router.get("/", async (req, res) => {
     const payments = await Payment.find()
       .populate("userId", "name email fullName")
       .populate("applicationId")
+      .populate("blockchainRecord")
       .sort({ createdAt: -1 });
 
     res.json({
@@ -209,7 +210,8 @@ router.put("/:id/approve-release", async (req, res) => {
 
     const updatedPayment = await Payment.findById(payment._id)
       .populate("userId", "name email fullName")
-      .populate("applicationId");
+      .populate("applicationId")
+      .populate("blockchainRecord");
 
     res.json({
       success: true,

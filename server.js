@@ -17,12 +17,12 @@ const applicationRoutes = require("./routes/applicationRoutes");
 const uploadDocumentsRoutes = require("./routes/uploadDocumentsRoutes");
 const logRoutes = require("./routes/logRoutes");
 const blockchainRoutes = require("./routes/blockchainRoutes");
-
-// ===================== PAYMENT ROUTES =====================
 const paymentRoutes = require("./routes/paymentRoutes");
+const chatRoutes = require("./routes/chatRoutes");
 
 // ===================== MODELS =====================
 const User = require("./models/User");
+const Chat = require("./models/Chat");
 
 // ===================== EXPRESS APP =====================
 const app = express();
@@ -83,58 +83,127 @@ app.set("io", io);
 io.on("connection", (socket) => {
   console.log("🟢 User connected:", socket.id);
 
-  socket.on("user_request_staff", (data) => {
-    const roomId = data.roomId || `chat_${data.userId}`;
-
-    socket.join(roomId);
-
-    io.emit("new_staff_request", {
-      userId: data.userId,
-      userName: data.userName,
-      roomId,
-      status: "waiting",
-      lastMessage: data.lastMessage || "User requested staff assistance",
-      createdAt: new Date(),
-    });
-  });
-
-  socket.on("staff_approve_chat", ({ roomId }) => {
-    socket.join(roomId);
-
-    io.to(roomId).emit("chat_approved", {
-      roomId,
-      message: "City Hall staff approved your chat. You may now send a message.",
-    });
-  });
-
-  socket.on("staff_accept_chat", ({ roomId }) => {
-    socket.join(roomId);
-
-    io.to(roomId).emit("chat_approved", {
-      roomId,
-      message: "City Hall staff approved your chat. You may now send a message.",
-    });
-  });
-
   socket.on("join_chat_room", ({ roomId }) => {
     if (!roomId) return;
     socket.join(roomId);
   });
 
-  socket.on("send_chat_message", ({ roomId, sender, text }) => {
-    if (!roomId || !text) return;
+  socket.on("user_request_staff", async (data) => {
+    try {
+      const roomId = data.roomId || `chat_${data.userId}`;
 
-    const message = {
-      roomId,
-      sender,
-      text,
-      createdAt: new Date(),
-    };
+      socket.join(roomId);
 
-    io.to(roomId).emit("receive_chat_message", message);
+      let chat = await Chat.findOne({ roomId });
 
-    if (sender === "user") {
-      io.emit("staff_receive_message", message);
+      if (!chat) {
+        chat = await Chat.create({
+          userId: data.userId,
+          userName: data.userName || "User",
+          roomId,
+          status: "waiting",
+          lastMessage: data.lastMessage || "User requested staff assistance",
+          messages: [
+            {
+              sender: "system",
+              text: data.lastMessage || "User requested staff assistance",
+            },
+          ],
+        });
+      }
+
+      io.emit("new_staff_request", chat);
+      io.emit("chat_updated", chat);
+    } catch (err) {
+      console.error("❌ user_request_staff error:", err);
+    }
+  });
+
+  socket.on("staff_approve_chat", async ({ roomId }) => {
+    try {
+      if (!roomId) return;
+
+      const chat = await Chat.findOneAndUpdate(
+        { roomId },
+        { status: "approved" },
+        { new: true }
+      );
+
+      if (!chat) return;
+
+      socket.join(roomId);
+
+      io.to(roomId).emit("chat_approved", {
+        roomId,
+        message: "City Hall staff approved your chat. You may now send a message.",
+        chat,
+      });
+
+      io.emit("chat_updated", chat);
+    } catch (err) {
+      console.error("❌ staff_approve_chat error:", err);
+    }
+  });
+
+  socket.on("staff_accept_chat", async ({ roomId }) => {
+    try {
+      if (!roomId) return;
+
+      const chat = await Chat.findOneAndUpdate(
+        { roomId },
+        { status: "approved" },
+        { new: true }
+      );
+
+      if (!chat) return;
+
+      socket.join(roomId);
+
+      io.to(roomId).emit("chat_approved", {
+        roomId,
+        message: "City Hall staff approved your chat. You may now send a message.",
+        chat,
+      });
+
+      io.emit("chat_updated", chat);
+    } catch (err) {
+      console.error("❌ staff_accept_chat error:", err);
+    }
+  });
+
+  socket.on("send_chat_message", async ({ roomId, sender, text, time }) => {
+    try {
+      if (!roomId || !text) return;
+
+      let chat = await Chat.findOne({ roomId });
+
+      if (!chat) return;
+
+      const message = {
+        roomId,
+        sender,
+        text,
+        time,
+        createdAt: new Date(),
+      };
+
+      chat.messages.push({
+        sender,
+        text,
+        time,
+      });
+
+      chat.lastMessage = text;
+      await chat.save();
+
+      io.to(roomId).emit("receive_chat_message", message);
+      io.emit("chat_updated", chat);
+
+      if (sender === "user") {
+        io.emit("staff_receive_message", message);
+      }
+    } catch (err) {
+      console.error("❌ send_chat_message error:", err);
     }
   });
 
@@ -175,7 +244,6 @@ mongoose
     console.log("✅ MongoDB connected");
 
     await createDefaultUser("admin", "admin@trustpermit.com", "admin123");
-
     await createDefaultUser("staff", "staff@cityhall.gov", "staff123");
   })
   .catch((err) => {
@@ -200,15 +268,12 @@ app.use("/api/auth", authRoutes);
 app.use("/api/clearance", clearanceRoutes);
 app.use("/api/otp", otpRoutes);
 app.use("/api/inspection", inspectionRoutes);
-
 app.use("/api/applications/upload-documents", uploadDocumentsRoutes);
-
 app.use("/api/applications", applicationRoutes);
-
 app.use("/api/logs", logRoutes);
 app.use("/api/blockchain", blockchainRoutes);
-
 app.use("/api/payments", paymentRoutes);
+app.use("/api/chats", chatRoutes);
 
 // ===================== USERS ROUTE =====================
 app.get("/api/users", async (req, res) => {

@@ -31,11 +31,7 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:5173",
-
-  // FRONTEND URL
   "https://trustpermit-frontend.onrender.com",
-
-  // BACKEND URL
   "https://trustpermit-backend.onrender.com",
 ];
 
@@ -50,18 +46,8 @@ app.use(
         callback(new Error("Not allowed by CORS"));
       }
     },
-
     credentials: true,
-
-    methods: [
-      "GET",
-      "POST",
-      "PUT",
-      "PATCH",
-      "DELETE",
-      "OPTIONS",
-    ],
-
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: [
       "Origin",
       "X-Requested-With",
@@ -77,10 +63,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ===================== STATIC FILES =====================
-app.use(
-  "/uploads",
-  express.static(path.join(__dirname, "uploads"))
-);
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // ===================== SOCKET SERVER =====================
 const server = http.createServer(app);
@@ -91,7 +74,6 @@ const io = new Server(server, {
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE"],
   },
-
   transports: ["websocket", "polling"],
 });
 
@@ -100,6 +82,61 @@ app.set("io", io);
 // ===================== SOCKET EVENTS =====================
 io.on("connection", (socket) => {
   console.log("🟢 User connected:", socket.id);
+
+  socket.on("user_request_staff", (data) => {
+    const roomId = data.roomId || `chat_${data.userId}`;
+
+    socket.join(roomId);
+
+    io.emit("new_staff_request", {
+      userId: data.userId,
+      userName: data.userName,
+      roomId,
+      status: "waiting",
+      lastMessage: data.lastMessage || "User requested staff assistance",
+      createdAt: new Date(),
+    });
+  });
+
+  socket.on("staff_approve_chat", ({ roomId }) => {
+    socket.join(roomId);
+
+    io.to(roomId).emit("chat_approved", {
+      roomId,
+      message: "City Hall staff approved your chat. You may now send a message.",
+    });
+  });
+
+  socket.on("staff_accept_chat", ({ roomId }) => {
+    socket.join(roomId);
+
+    io.to(roomId).emit("chat_approved", {
+      roomId,
+      message: "City Hall staff approved your chat. You may now send a message.",
+    });
+  });
+
+  socket.on("join_chat_room", ({ roomId }) => {
+    if (!roomId) return;
+    socket.join(roomId);
+  });
+
+  socket.on("send_chat_message", ({ roomId, sender, text }) => {
+    if (!roomId || !text) return;
+
+    const message = {
+      roomId,
+      sender,
+      text,
+      createdAt: new Date(),
+    };
+
+    io.to(roomId).emit("receive_chat_message", message);
+
+    if (sender === "user") {
+      io.emit("staff_receive_message", message);
+    }
+  });
 
   socket.on("disconnect", () => {
     console.log("🔴 User disconnected:", socket.id);
@@ -119,10 +156,7 @@ const createDefaultUser = async (role, email, password) => {
         password: hashedPassword,
         role,
         emailVerified: true,
-        fullName:
-          role === "admin"
-            ? "Default Admin"
-            : "Default Staff",
+        fullName: role === "admin" ? "Default Admin" : "Default Staff",
       });
 
       console.log(`✅ Default ${role} account created`);
@@ -136,24 +170,13 @@ const createDefaultUser = async (role, email, password) => {
 
 // ===================== MONGODB CONNECTION =====================
 mongoose
-  .connect(
-    process.env.MONGO_URI ||
-      "mongodb://127.0.0.1:27017/trustpermit"
-  )
+  .connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/trustpermit")
   .then(async () => {
     console.log("✅ MongoDB connected");
 
-    await createDefaultUser(
-      "admin",
-      "admin@trustpermit.com",
-      "admin123"
-    );
+    await createDefaultUser("admin", "admin@trustpermit.com", "admin123");
 
-    await createDefaultUser(
-      "staff",
-      "staff@cityhall.gov",
-      "staff123"
-    );
+    await createDefaultUser("staff", "staff@cityhall.gov", "staff123");
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err);
@@ -178,19 +201,13 @@ app.use("/api/clearance", clearanceRoutes);
 app.use("/api/otp", otpRoutes);
 app.use("/api/inspection", inspectionRoutes);
 
-// ===================== UPLOAD DOCUMENTS ROUTE =====================
-app.use(
-  "/api/applications/upload-documents",
-  uploadDocumentsRoutes
-);
+app.use("/api/applications/upload-documents", uploadDocumentsRoutes);
 
-// ===================== APPLICATION ROUTES =====================
 app.use("/api/applications", applicationRoutes);
 
 app.use("/api/logs", logRoutes);
 app.use("/api/blockchain", blockchainRoutes);
 
-// ===================== PAYMENT ROUTES =====================
 app.use("/api/payments", paymentRoutes);
 
 // ===================== USERS ROUTE =====================

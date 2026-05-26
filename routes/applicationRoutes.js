@@ -1,67 +1,11 @@
 const express = require("express");
 const router = express.Router();
 
-const {
-  Connection,
-  Keypair,
-  PublicKey,
-  Transaction,
-  TransactionInstruction,
-  sendAndConfirmTransaction,
-} = require("@solana/web3.js");
-
 const Application = require("../models/Application");
-const BlockchainRecord = require("../models/BlockchainRecord");
-
 const protect = require("../middleware/authMiddleware");
 const upload = require("../middleware/uploadMiddleware");
 
-const hashPermit = require("../utils/hashPermit");
-
-const MEMO_PROGRAM_ID = new PublicKey(
-  "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
-);
-
-// =====================================================
-// Save permit hash to Solana Devnet
-// =====================================================
-const saveHashToBlockchain = async (hash) => {
-  if (!process.env.SOLANA_SECRET_KEY) {
-    throw new Error("SOLANA_SECRET_KEY is missing in .env");
-  }
-
-  const secretKey = Uint8Array.from(JSON.parse(process.env.SOLANA_SECRET_KEY));
-
-  const payer = Keypair.fromSecretKey(secretKey);
-
-  const connection = new Connection(
-    process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
-    "confirmed"
-  );
-
-  const memoText = `TrustPermit:${hash}`;
-
-  const instruction = new TransactionInstruction({
-    keys: [],
-    programId: MEMO_PROGRAM_ID,
-    data: Buffer.from(memoText, "utf8"),
-  });
-
-  const transaction = new Transaction().add(instruction);
-
-  const signature = await sendAndConfirmTransaction(connection, transaction, [
-    payer,
-  ]);
-
-  console.log("✅ Solana transaction:", signature);
-
-  return signature;
-};
-
-// =====================================================
-// Get all applications for staff/admin
-// URL: GET /api/applications
-// =====================================================
+// GET /api/applications
 router.get("/", protect, async (req, res) => {
   try {
     const role = req.user.role;
@@ -77,7 +21,6 @@ router.get("/", protect, async (req, res) => {
 
     res.json(applications);
   } catch (err) {
-    console.error("Fetch applications error:", err);
     res.status(500).json({
       message: "Failed to fetch applications",
       error: err.message,
@@ -85,9 +28,7 @@ router.get("/", protect, async (req, res) => {
   }
 });
 
-// =====================================================
-// Get latest application for logged-in citizen
-// =====================================================
+// GET /api/applications/my-latest
 router.get("/my-latest", protect, async (req, res) => {
   try {
     const userId = req.user._id || req.user.id;
@@ -105,7 +46,6 @@ router.get("/my-latest", protect, async (req, res) => {
       application: latestApp,
     });
   } catch (err) {
-    console.error("Fetch my latest application error:", err);
     res.status(500).json({
       message: "Failed to fetch your latest application",
       error: err.message,
@@ -113,9 +53,7 @@ router.get("/my-latest", protect, async (req, res) => {
   }
 });
 
-// =====================================================
-// Get applications for logged-in citizen
-// =====================================================
+// GET /api/applications/my
 router.get("/my", protect, async (req, res) => {
   try {
     const userId = req.user._id || req.user.id;
@@ -126,7 +64,6 @@ router.get("/my", protect, async (req, res) => {
 
     res.json(applications);
   } catch (err) {
-    console.error("Fetch my applications error:", err);
     res.status(500).json({
       message: "Failed to fetch your applications",
       error: err.message,
@@ -134,9 +71,7 @@ router.get("/my", protect, async (req, res) => {
   }
 });
 
-// =====================================================
-// Create new application
-// =====================================================
+// POST /api/applications
 router.post("/", protect, async (req, res) => {
   try {
     const userId = req.user._id || req.user.id;
@@ -227,7 +162,6 @@ router.post("/", protect, async (req, res) => {
       application,
     });
   } catch (err) {
-    console.error("Create application error:", err);
     res.status(500).json({
       message: "Failed to create application",
       error: err.message,
@@ -235,9 +169,7 @@ router.post("/", protect, async (req, res) => {
   }
 });
 
-// =====================================================
-// Get single application by ID
-// =====================================================
+// GET /api/applications/:id
 router.get("/:id", protect, async (req, res) => {
   try {
     const role = req.user.role;
@@ -265,7 +197,6 @@ router.get("/:id", protect, async (req, res) => {
 
     res.json(application);
   } catch (err) {
-    console.error("Fetch single application error:", err);
     res.status(500).json({
       message: "Failed to fetch application",
       error: err.message,
@@ -273,9 +204,7 @@ router.get("/:id", protect, async (req, res) => {
   }
 });
 
-// =====================================================
-// Update application status
-// =====================================================
+// PATCH /api/applications/:id/status
 router.patch("/:id/status", protect, async (req, res) => {
   try {
     const role = req.user.role;
@@ -287,7 +216,9 @@ router.patch("/:id/status", protect, async (req, res) => {
     const { id } = req.params;
     const { status, staffNotes, documentStatuses } = req.body;
 
-    if (!["Pending", "Approved", "Rejected"].includes(status)) {
+    const validStatuses = ["Pending", "Approved", "Rejected"];
+
+    if (!validStatuses.includes(status)) {
       return res.status(400).json({
         message: "Invalid status",
       });
@@ -296,7 +227,7 @@ router.patch("/:id/status", protect, async (req, res) => {
     const updateData = {
       status,
       assignedStaff: req.user._id || req.user.id,
-      staffNotes,
+      staffNotes: staffNotes || "",
     };
 
     if (documentStatuses) {
@@ -313,54 +244,22 @@ router.patch("/:id/status", protect, async (req, res) => {
       });
     }
 
-    let blockchainRecord = null;
-
-    if (status === "Approved") {
-      const existingRecord = await BlockchainRecord.findOne({
-        permitId: application._id,
-      });
-
-      if (existingRecord) {
-        blockchainRecord = existingRecord;
-      } else {
-        const hash = hashPermit({
-          permitId: application._id,
-          businessName: application.businessName,
-          applicationType: application.applicationType,
-          applicant: application.applicant,
-          businessDetails: application.businessDetails,
-          status: application.status,
-          approvedAt: new Date(),
-        });
-
-        const transactionSignature = await saveHashToBlockchain(hash);
-
-        blockchainRecord = await BlockchainRecord.create({
-          permitId: application._id,
-          hash,
-          transactionSignature,
-        });
-      }
-    }
-
     const io = req.app.get("io");
 
-    if (io && application) {
+    if (io) {
       io.emit("application-status-updated", {
         applicationId: application._id,
         citizenId: application.citizenId,
         status: application.status,
         application,
-        blockchainRecord,
       });
     }
 
     res.json({
+      message: "Application status updated",
       application,
-      blockchainRecord,
     });
   } catch (err) {
-    console.error("Update application status error:", err);
     res.status(500).json({
       message: "Failed to update status",
       error: err.message,
@@ -368,9 +267,7 @@ router.patch("/:id/status", protect, async (req, res) => {
   }
 });
 
-// =====================================================
-// Upload application documents
-// =====================================================
+// POST /api/applications/upload-documents
 router.post("/upload-documents", protect, upload.any(), async (req, res) => {
   try {
     const { applicationId } = req.body;
@@ -416,7 +313,6 @@ router.post("/upload-documents", protect, upload.any(), async (req, res) => {
       documentStatuses,
     });
   } catch (err) {
-    console.error("Upload documents error:", err);
     res.status(500).json({
       message: "Failed to upload documents",
       error: err.message,

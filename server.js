@@ -31,6 +31,15 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:5173",
+
+  // Vercel frontend
+  "https://trustpermit-webclient.vercel.app",
+
+  // Custom domain
+  "https://trustpermit.com",
+  "https://www.trustpermit.com",
+
+  // Render
   "https://trustpermit-frontend.onrender.com",
   "https://trustpermit-backend.onrender.com",
 ];
@@ -39,12 +48,16 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        console.log("❌ Blocked by CORS:", origin);
-        callback(new Error("Not allowed by CORS"));
+      if (!origin) {
+        return callback(null, true);
       }
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      console.log("❌ Blocked by CORS:", origin);
+      return callback(new Error(`CORS blocked for origin: ${origin}`));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -91,7 +104,6 @@ io.on("connection", (socket) => {
   socket.on("user_request_staff", async (data) => {
     try {
       const roomId = data.roomId || `chat_${data.userId}`;
-
       socket.join(roomId);
 
       let chat = await Chat.findOne({ roomId });
@@ -175,7 +187,7 @@ io.on("connection", (socket) => {
     try {
       if (!roomId || !text) return;
 
-      let chat = await Chat.findOne({ roomId });
+      const chat = await Chat.findOne({ roomId });
 
       if (!chat) return;
 
@@ -324,4 +336,4 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌐 Local: http://localhost:${PORT}`);
-});
+}); 

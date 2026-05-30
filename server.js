@@ -1,164 +1,252 @@
+// ===================== IMPORTS =====================
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
+const http = require("http");
+const { Server } = require("socket.io");
+const path = require("path");
 require("dotenv").config();
 
-const applicationRoutes = require("./routes/applicationRoutes");
+// ===================== ROUTES =====================
 const authRoutes = require("./routes/authRoutes");
-const paymentRoutes = require("./routes/paymentRoutes");
+const clearanceRoutes = require("./routes/clearanceRoutes");
 const otpRoutes = require("./routes/otpRoutes");
+const inspectionRoutes = require("./routes/inspection");
+const applicationRoutes = require("./routes/applicationRoutes");
+const uploadDocumentsRoutes = require("./routes/uploadDocumentsRoutes");
+const logRoutes = require("./routes/logRoutes");
+const blockchainRoutes = require("./routes/blockchainRoutes");
+const paymentRoutes = require("./routes/paymentRoutes");
+const chatRoutes = require("./routes/chatRoutes");
 
+// ===================== MODELS =====================
+const User = require("./models/User");
+const Chat = require("./models/Chat");
+
+// ===================== EXPRESS APP =====================
 const app = express();
 
-// ===== IMPROVED CORS CONFIGURATION =====
+// ===================== ALLOWED ORIGINS =====================
 const allowedOrigins = [
-  'http://localhost:5000',
-  'http://localhost:3000',
-  'http://10.0.2.2:5000',
-  'http://10.0.2.2:3000',
-  'https://trustpermit-backend.onrender.com',
-  'https://trustpermit-web.vercel.app',
-  'https://trustpermit-web.netlify.app',
-  // Add your web domain here when deployed
+  "http://localhost:3000",
+  "http://localhost:5173",
+  "https://trustpermit-webclient.vercel.app",
+  "https://trustpermit.com",
+  "https://www.trustpermit.com",
+  "https://trustpermit-frontend.onrender.com",
+  "https://trustpermit-backend.onrender.com",
 ];
 
-app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.log(`CORS blocked origin: ${origin}`);
-      callback(null, true); // Allow for now, log for debugging
-    }
+// ===================== CORS =====================
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      console.log("❌ Blocked by CORS:", origin);
+      return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Origin",
+      "X-Requested-With",
+      "Content-Type",
+      "Accept",
+      "Authorization",
+    ],
+  })
+);
+
+// ===================== BODY PARSER =====================
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ===================== STATIC FILES =====================
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+// ===================== SOCKET SERVER =====================
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  path: "/socket.io", // Must match frontend
+  cors: {
+    origin: allowedOrigins,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE"],
   },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
-
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
-
-// ===== HEALTH CHECK ENDPOINTS =====
-app.get("/", (req, res) => {
-  res.json({
-    status: "ok",
-    message: "TrustPermit Backend API is running",
-    timestamp: new Date().toISOString(),
-  });
+  transports: ["websocket", "polling"],
 });
 
-app.get("/api", (req, res) => {
-  res.json({
-    success: true,
-    message: "TrustPermit API is running",
-    version: "1.0.0",
-  });
-});
+app.set("io", io);
 
-app.get("/api/health", (req, res) => {
-  const health = {
-    status: "healthy",
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    mongodb: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+// ===================== SOCKET EVENTS =====================
+io.on("connection", (socket) => {
+  console.log("🟢 User connected:", socket.id);
+
+  socket.on("join_chat_room", ({ roomId }) => {
+    if (roomId) socket.join(roomId);
+  });
+
+  socket.on("user_request_staff", async (data) => {
+    try {
+      const roomId = data.roomId || `chat_${data.userId}`;
+      socket.join(roomId);
+
+      let chat = await Chat.findOne({ roomId });
+      if (!chat) {
+        chat = await Chat.create({
+          userId: data.userId,
+          userName: data.userName || "User",
+          roomId,
+          status: "waiting",
+          lastMessage: data.lastMessage || "User requested staff assistance",
+          messages: [
+            {
+              sender: "system",
+              text: data.lastMessage || "User requested staff assistance",
+            },
+          ],
+        });
+      }
+
+      io.emit("new_staff_request", chat);
+      io.emit("chat_updated", chat);
+    } catch (err) {
+      console.error("❌ user_request_staff error:", err);
+    }
+  });
+
+  const approveChat = async ({ roomId }) => {
+    if (!roomId) return;
+    try {
+      const chat = await Chat.findOneAndUpdate(
+        { roomId },
+        { status: "approved" },
+        { new: true }
+      );
+      if (!chat) return;
+
+      socket.join(roomId);
+      io.to(roomId).emit("chat_approved", {
+        roomId,
+        message: "City Hall staff approved your chat. You may now send a message.",
+        chat,
+      });
+      io.emit("chat_updated", chat);
+    } catch (err) {
+      console.error("❌ approveChat error:", err);
+    }
   };
-  res.json(health);
+
+  socket.on("staff_approve_chat", approveChat);
+  socket.on("staff_accept_chat", approveChat);
+
+  socket.on("send_chat_message", async ({ roomId, sender, text, time }) => {
+    if (!roomId || !text) return;
+    try {
+      const chat = await Chat.findOne({ roomId });
+      if (!chat) return;
+
+      const message = { roomId, sender, text, time, createdAt: new Date() };
+      chat.messages.push({ sender, text, time });
+      chat.lastMessage = text;
+      await chat.save();
+
+      io.to(roomId).emit("receive_chat_message", message);
+      io.emit("chat_updated", chat);
+
+      if (sender === "user") io.emit("staff_receive_message", message);
+    } catch (err) {
+      console.error("❌ send_chat_message error:", err);
+    }
+  });
+
+  socket.on("disconnect", () => {
+    console.log("🔴 User disconnected:", socket.id);
+  });
 });
 
-// ===== ROUTES =====
+// ===================== DEFAULT USERS =====================
+const createDefaultUser = async (role, email, password) => {
+  try {
+    const exists = await User.findOne({ role });
+    if (!exists) {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      await User.create({
+        email,
+        password: hashedPassword,
+        role,
+        emailVerified: true,
+        fullName: role === "admin" ? "Default Admin" : "Default Staff",
+      });
+      console.log(`✅ Default ${role} account created`);
+    } else {
+      console.log(`ℹ️ ${role} already exists`);
+    }
+  } catch (err) {
+    console.error(`❌ Error creating ${role}:`, err);
+  }
+};
+
+// ===================== MONGODB CONNECTION =====================
+mongoose
+  .connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/trustpermit")
+  .then(async () => {
+    console.log("✅ MongoDB connected");
+    await createDefaultUser("admin", "admin@trustpermit.com", "admin123");
+    await createDefaultUser("staff", "staff@cityhall.gov", "staff123");
+  })
+  .catch((err) => console.error("❌ MongoDB connection error:", err));
+
+mongoose.connection.on("connected", () =>
+  console.log("✅ MongoDB connection established")
+);
+mongoose.connection.on("error", (err) =>
+  console.error("❌ MongoDB connection error:", err)
+);
+mongoose.connection.on("disconnected", () =>
+  console.log("⚠️ MongoDB disconnected")
+);
+
+// ===================== API ROUTES =====================
 app.use("/api/auth", authRoutes);
+app.use("/api/clearance", clearanceRoutes);
+app.use("/api/otp", otpRoutes);
+app.use("/api/inspection", inspectionRoutes);
+app.use("/api/applications/upload-documents", uploadDocumentsRoutes);
 app.use("/api/applications", applicationRoutes);
+app.use("/api/logs", logRoutes);
+app.use("/api/blockchain", blockchainRoutes);
 app.use("/api/payments", paymentRoutes);
-app.use("/otp", otpRoutes);
+app.use("/api/chats", chatRoutes);
 
-// ===== MONGODB CONNECTION =====
-const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URI;
-const MONGO_DB_NAME = process.env.MONGO_DB_NAME || 'trustpermit';
-
-if (!MONGODB_URI) {
-  console.error("❌ MONGODB_URI or MONGO_URI is not set in environment variables");
-  console.error("Please set MONGODB_URI (or MONGO_URI) in your Render environment");
-} else {
-  mongoose
-    .connect(MONGODB_URI, {
-      dbName: MONGO_DB_NAME,
-      maxPoolSize: 10,
-      serverSelectionTimeoutMS: 10000,
-      connectTimeoutMS: 10000,
-      socketTimeoutMS: 45000,
-      bufferCommands: false,
-      autoIndex: false,
-    })
-    .then(() => {
-      console.log(`✅ MongoDB Connected Successfully to ${MONGO_DB_NAME}`);
-    })
-    .catch((err) => {
-      console.error("❌ MongoDB Connection Error:", err.message);
-      // Don't exit - app can start but will fail on DB operations
-    });
-}
-
-// ===== MONGODB EVENT HANDLERS =====
-mongoose.connection.on('error', (err) => {
-  console.error('❌ MongoDB connection error:', err.message);
+// ===================== USERS ROUTE =====================
+app.get("/api/users", async (req, res) => {
+  try {
+    const filter = {};
+    if (req.query.role) filter.role = req.query.role;
+    const users = await User.find(filter, "-password -resetToken -resetTokenExpiry");
+    res.json(users);
+  } catch (err) {
+    console.error("❌ Error fetching users:", err);
+    res.status(500).json({ message: "Server error" });
+  }
 });
 
-mongoose.connection.on('disconnected', () => {
-  console.warn('⚠️  MongoDB disconnected');
-});
+// ===================== ROOT ROUTES =====================
+app.get("/", (req, res) => res.send("🚀 TrustPermit API running"));
+app.get("/api", (req, res) => res.json({ success: true, message: "TrustPermit API is running" }));
+app.get("/api/test", (req, res) =>
+  res.json({ success: true, message: "Backend connected successfully" })
+);
 
-mongoose.connection.on('reconnected', () => {
-  console.log('✅ MongoDB reconnected');
-});
-
-// ===== ERROR HANDLING MIDDLEWARE =====
-app.use((err, req, res, next) => {
-  console.error('Unhandled Error:', {
-    message: err.message,
-    status: err.status || 500,
-    path: req.path,
-    method: req.method,
-  });
-
-  const statusCode = err.status || 500;
-  res.status(statusCode).json({
-    success: false,
-    message: err.message || 'Internal Server Error',
-    status: statusCode,
-  });
-});
-
-// ===== 404 HANDLER =====
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: 'Endpoint not found',
-    path: req.path,
-    method: req.method,
-  });
-});
-
-// ===== SERVER START =====
+// ===================== SERVER =====================
 const PORT = process.env.PORT || 5000;
 
-const server = app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
-  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`📊 API URL: http://localhost:${PORT}/api`);
-});
-
-// ===== GRACEFUL SHUTDOWN =====
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  server.close(() => {
-    console.log('HTTP server closed');
-    mongoose.connection.close(false, () => {
-      console.log('MongoDB connection closed');
-      process.exit(0);
-    });
-  });
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🌐 Local: http://localhost:${PORT}`);
 });

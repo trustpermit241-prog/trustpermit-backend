@@ -42,7 +42,7 @@ router.post("/register", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err);
+    console.error("Register error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 });
@@ -54,7 +54,9 @@ router.post("/create", async (req, res) => {
   const normalizedRole = (role || "citizen").toLowerCase();
 
   if (!userName || !email || !password) {
-    return res.status(400).json({ message: "Full name, email and password are required." });
+    return res
+      .status(400)
+      .json({ message: "Full name, email and password are required." });
   }
 
   try {
@@ -81,8 +83,14 @@ router.post("/create", async (req, res) => {
     );
 
     try {
+      const logType =
+        normalizedRole === "staff"
+          ? "staff"
+          : normalizedRole === "admin"
+          ? "security"
+          : "user";
       await SystemLog.create({
-        type: normalizedRole === "staff" ? "staff" : normalizedRole === "admin" ? "security" : "user",
+        type: logType,
         message: `${normalizedRole.charAt(0).toUpperCase() + normalizedRole.slice(1)} ${userName} created`,
       });
     } catch (logError) {
@@ -95,7 +103,7 @@ router.post("/create", async (req, res) => {
       token,
     });
   } catch (err) {
-    console.error(err);
+    console.error("Create user error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 });
@@ -104,11 +112,18 @@ router.post("/create", async (req, res) => {
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
+  console.log("Login attempt:", req.body);
+
   try {
-    const user = await User.findOne({ email });
+    // Always include password for comparison
+    const user = await User.findOne({ email }).select("+password");
+    console.log("User found:", user);
+
     if (!user) return res.status(400).json({ message: "Invalid credentials" });
 
     const isMatch = await bcrypt.compare(password, user.password);
+    console.log("Password match:", isMatch);
+
     if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
 
     const token = jwt.sign(
@@ -118,7 +133,8 @@ router.post("/login", async (req, res) => {
     );
 
     try {
-      const logType = user.role === "admin" ? "security" : user.role === "staff" ? "staff" : "user";
+      const logType =
+        user.role === "admin" ? "security" : user.role === "staff" ? "staff" : "user";
       const userName = user.fullName || user.name || user.email || "Unknown user";
       await SystemLog.create({
         type: logType,
@@ -131,18 +147,18 @@ router.post("/login", async (req, res) => {
     res.json({
       token,
       role: user.role,
-      userId: user._id, // convenience
+      userId: user._id,
       user: {
         _id: user._id,
         id: user._id,
-        name: user.fullName,       // 🔥 FIX
-        fullName: user.fullName,   // keep original
+        name: user.fullName,
+        fullName: user.fullName,
         email: user.email,
         role: user.role,
       },
     });
   } catch (err) {
-    console.error(err);
+    console.error("Login route error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -152,15 +168,13 @@ router.get("/me", protect, async (req, res) => {
   try {
     const userId = req.user._id || req.user.id;
 
-    const user = await User.findById(userId).select(
-      "-password -resetToken -resetTokenExpiry"
-    );
+    const user = await User.findById(userId).select("-password -resetToken -resetTokenExpiry");
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
     res.json({
       _id: user._id,
-      name: user.fullName,      // 🔥 FIX
+      name: user.fullName,
       fullName: user.fullName,
       email: user.email,
       role: user.role,
@@ -173,12 +187,9 @@ router.get("/me", protect, async (req, res) => {
   }
 });
 
-// ====================== FORGOT PASSWORD FLOW ======================
-
-// In-memory OTP store
+// ====================== FORGOT PASSWORD ======================
 const forgotOtpStore = {};
 
-// Send OTP
 router.post("/forgot-password", async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ message: "Email is required" });
@@ -188,10 +199,7 @@ router.post("/forgot-password", async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found" });
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    forgotOtpStore[email] = {
-      otp,
-      expires: Date.now() + 15 * 60 * 1000,
-    };
+    forgotOtpStore[email] = { otp, expires: Date.now() + 15 * 60 * 1000 };
 
     console.log(`[Forgot OTP] ${email}: ${otp}`);
 
@@ -202,7 +210,6 @@ router.post("/forgot-password", async (req, res) => {
   }
 });
 
-// Verify OTP
 router.post("/verify-forgot-otp", (req, res) => {
   const { email, otp } = req.body;
   const record = forgotOtpStore[email];
@@ -215,23 +222,20 @@ router.post("/verify-forgot-otp", (req, res) => {
   res.json({ message: "OTP verified successfully." });
 });
 
-// Reset password
 router.post("/reset-password", async (req, res) => {
   const { email, password } = req.body;
-  if (!email || !password)
-    return res.status(400).json({ message: "Email and password required." });
+  if (!email || !password) return res.status(400).json({ message: "Email and password required" });
 
   try {
-    const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ message: "User not found." });
+    const user = await User.findOne({ email }).select("+password"); // include password if hidden
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    user.password = hashedPassword;
+    user.password = await bcrypt.hash(password, 10);
     await user.save();
 
     res.json({ message: "Password reset successfully." });
   } catch (err) {
-    console.error(err);
+    console.error("Reset password error:", err);
     res.status(500).json({ message: "Failed to reset password." });
   }
 });

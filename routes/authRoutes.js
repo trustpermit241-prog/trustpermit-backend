@@ -3,10 +3,10 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const SystemLog = require('../models/SystemLog');
-const protect = require('../middleware/authMiddleware');
 
 const router = express.Router();
+
+const JWT_SECRET = process.env.JWT_SECRET || 'trustpermit_secret_key';
 
 function hashPassword(password, salt) {
   return crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
@@ -20,12 +20,12 @@ function generateJwtToken(user) {
   return jwt.sign(
     {
       id: user._id,
+      _id: user._id,
       role: user.role,
+      email: user.email,
     },
-    process.env.JWT_SECRET || 'secret',
-    {
-      expiresIn: '7d',
-    }
+    JWT_SECRET,
+    { expiresIn: '7d' }
   );
 }
 
@@ -74,6 +74,7 @@ router.post('/register', async (req, res) => {
       message: 'User registered successfully.',
       user: {
         id: user._id,
+        _id: user._id,
         fullName: user.fullName,
         email: user.email,
         role: user.role,
@@ -82,7 +83,6 @@ router.post('/register', async (req, res) => {
     });
   } catch (error) {
     console.error('REGISTER ERROR:', error);
-
     return res.status(500).json({
       success: false,
       message: 'Failed to register user.',
@@ -97,15 +97,14 @@ router.post('/create', async (req, res) => {
     const { fullName, name, email, password, role } = req.body;
     const userName = fullName || name;
     const normalizedRole = String(role || 'citizen').toLowerCase().trim();
+    const normalizedEmail = String(email || '').toLowerCase().trim();
 
-    if (!userName || !email || !password) {
+    if (!userName || !normalizedEmail || !password) {
       return res.status(400).json({
         success: false,
         message: 'Full name, email, and password are required.',
       });
     }
-
-    const normalizedEmail = String(email).toLowerCase().trim();
 
     const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
@@ -138,6 +137,7 @@ router.post('/create', async (req, res) => {
       message: `${normalizedRole} account created successfully`,
       user: {
         id: user._id,
+        _id: user._id,
         fullName: user.fullName,
         email: user.email,
         role: user.role,
@@ -146,7 +146,6 @@ router.post('/create', async (req, res) => {
     });
   } catch (error) {
     console.error('CREATE USER ERROR:', error);
-
     return res.status(500).json({
       success: false,
       message: 'Failed to create user.',
@@ -183,8 +182,8 @@ router.post('/login', async (req, res) => {
     let passwordMatch = false;
 
     if (user.salt && user.passwordHash) {
-      const passwordHash = hashPassword(password, user.salt);
-      passwordMatch = passwordHash === user.passwordHash;
+      const inputHash = hashPassword(password, user.salt);
+      passwordMatch = inputHash === user.passwordHash;
     }
 
     if (!passwordMatch && user.password) {
@@ -214,6 +213,7 @@ router.post('/login', async (req, res) => {
       message: 'Login successful.',
       user: {
         id: user._id,
+        _id: user._id,
         fullName: user.fullName,
         email: user.email,
         role: user.role,
@@ -222,7 +222,6 @@ router.post('/login', async (req, res) => {
     });
   } catch (error) {
     console.error('LOGIN ERROR:', error);
-
     return res.status(500).json({
       success: false,
       message: 'Failed to authenticate user.',

@@ -7,7 +7,7 @@ module.exports = async (req, res, next) => {
 
   // First try to verify as a JWT
   try {
-    const secret = process.env.JWT_SECRET || "secret";
+const secret = process.env.JWT_SECRET || "trustpermit_secret_key";
     const decoded = jwt.verify(token, secret);
     req.user = decoded;
     return next();

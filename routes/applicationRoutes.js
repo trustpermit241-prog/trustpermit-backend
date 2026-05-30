@@ -1,321 +1,299 @@
 const express = require("express");
+const mongoose = require("mongoose");
+const Application = require("../models/Application");
+const User = require("../models/User");
+
 const router = express.Router();
 
-const Application = require("../models/Application");
-const protect = require("../middleware/authMiddleware");
-const upload = require("../middleware/uploadMiddleware");
-
-// GET /api/applications
-router.get("/", protect, async (req, res) => {
+async function authorize(req, res, next) {
   try {
-    const role = req.user.role;
-
-    if (role !== "staff" && role !== "admin") {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    const applications = await Application.find()
-      .populate({ path: "citizenId", select: "fullName email" })
-      .populate({ path: "assignedStaff", select: "fullName email" })
-      .sort({ createdAt: -1 });
-
-    res.json(applications);
-  } catch (err) {
-    res.status(500).json({
-      message: "Failed to fetch applications",
-      error: err.message,
-    });
-  }
-});
-
-// GET /api/applications/my-latest
-router.get("/my-latest", protect, async (req, res) => {
-  try {
-    const userId = req.user._id || req.user.id;
-
-    const latestApp = await Application.findOne({ citizenId: userId }).sort({
-      createdAt: -1,
-    });
-
-    if (!latestApp) {
-      return res.status(404).json({ message: "No applications found" });
-    }
-
-    res.json({
-      status: latestApp.status,
-      application: latestApp,
-    });
-  } catch (err) {
-    res.status(500).json({
-      message: "Failed to fetch your latest application",
-      error: err.message,
-    });
-  }
-});
-
-// GET /api/applications/my
-router.get("/my", protect, async (req, res) => {
-  try {
-    const userId = req.user._id || req.user.id;
-
-    const applications = await Application.find({ citizenId: userId }).sort({
-      createdAt: -1,
-    });
-
-    res.json(applications);
-  } catch (err) {
-    res.status(500).json({
-      message: "Failed to fetch your applications",
-      error: err.message,
-    });
-  }
-});
-
-// POST /api/applications
-router.post("/", protect, async (req, res) => {
-  try {
-    const userId = req.user._id || req.user.id;
-
-    const {
-      businessName,
-      applicationType,
-      projectType,
-      zoneType,
-      firstName,
-      middleName,
-      lastName,
-      suffixName,
-      gender,
-      civilStatus,
-      nationality,
-      contactNumber,
-      email,
-      province,
-      city,
-      barangay,
-      subdivision,
-      street,
-      building,
-      houseNo,
-      block,
-      lot,
-      landmark,
-      businessArea,
-      malePersonnel,
-      femalePersonnel,
-      ownershipType,
-      lineOfBusiness,
-      documents,
-      signature,
-    } = req.body;
-
-    const application = await Application.create({
-      citizenId: userId,
-      businessName,
-      applicationType,
-      projectType,
-      zoneType,
-      applicant: {
-        firstName,
-        middleName,
-        lastName,
-        suffixName,
-        gender,
-        civilStatus,
-        nationality,
-        contactNumber,
-        email,
-      },
-      address: {
-        province,
-        city,
-        barangay,
-        subdivision,
-        street,
-        building,
-        houseNo,
-        block,
-        lot,
-        landmark,
-      },
-      businessDetails: {
-        businessArea,
-        malePersonnel,
-        femalePersonnel,
-        ownershipType,
-        lineOfBusiness,
-      },
-      documents: documents || {},
-      signature,
-      documentStatuses: {},
-      status: "Pending",
-    });
-
-    const io = req.app.get("io");
-
-    if (io) {
-      io.emit("new-application", application);
-    }
-
-    res.status(201).json({
-      message: "Application created",
-      application,
-    });
-  } catch (err) {
-    res.status(500).json({
-      message: "Failed to create application",
-      error: err.message,
-    });
-  }
-});
-
-// GET /api/applications/:id
-router.get("/:id", protect, async (req, res) => {
-  try {
-    const role = req.user.role;
-    const userId = req.user._id || req.user.id;
-
-    const application = await Application.findById(req.params.id)
-      .populate({ path: "citizenId", select: "fullName email" })
-      .populate({ path: "assignedStaff", select: "fullName email" });
-
-    if (!application) {
-      return res.status(404).json({
-        message: "Application not found",
+    const header = req.headers.authorization || '';
+    
+    if (!header.startsWith('Bearer ')) {
+      console.warn('⚠️  No Bearer token provided');
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Missing authorization token. Please login first.',
       });
     }
 
-    const ownerId = application.citizenId?._id || application.citizenId;
-
-    if (
-      role !== "staff" &&
-      role !== "admin" &&
-      ownerId.toString() !== userId.toString()
-    ) {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    res.json(application);
-  } catch (err) {
-    res.status(500).json({
-      message: "Failed to fetch application",
-      error: err.message,
-    });
-  }
-});
-
-// PATCH /api/applications/:id/status
-router.patch("/:id/status", protect, async (req, res) => {
-  try {
-    const role = req.user.role;
-
-    if (role !== "staff" && role !== "admin") {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    const { id } = req.params;
-    const { status, staffNotes, documentStatuses } = req.body;
-
-    const validStatuses = ["Pending", "Approved", "Rejected"];
-
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({
-        message: "Invalid status",
+    const token = header.slice(7).trim();
+    if (!token) {
+      console.warn('⚠️  Empty token provided');
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid authorization token.',
       });
     }
 
-    const updateData = {
-      status,
-      assignedStaff: req.user._id || req.user.id,
-      staffNotes: staffNotes || "",
+    if (mongoose.connection.readyState !== 1) {
+      console.error('❌ Authorization blocked: MongoDB not connected.');
+      return res.status(503).json({
+        success: false,
+        message: 'Database temporarily unavailable. Please try again later.',
+      });
+    }
+
+    const user = await User.findOne({ apiToken: token });
+    if (!user) {
+      console.warn('⚠️  Token not found for:', token.substring(0, 10) + '...');
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid token. Please login again.',
+      });
+    }
+
+    req.user = user;
+    next();
+  } catch (error) {
+    console.error('❌ Authorization error:', error.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Authentication error: ' + error.message,
+    });
+  }
+}
+
+router.use(authorize);
+
+// Generic create endpoint (keeps backwards compatibility)
+router.post("/", async (req, res) => {
+  try {
+    console.log('📝 Creating application for user:', req.user.email);
+    console.log('📋 Payload:', JSON.stringify(req.body, null, 2));
+
+    // Add user reference
+    const payload = {
+      ...req.body,
+      userId: req.user._id,
     };
 
-    if (documentStatuses) {
-      updateData.documentStatuses = documentStatuses;
-    }
+    const application = await Application.create(payload);
 
-    const application = await Application.findByIdAndUpdate(id, updateData, {
-      new: true,
-    });
-
-    if (!application) {
-      return res.status(404).json({
-        message: "Application not found",
-      });
-    }
-
-    const io = req.app.get("io");
-
-    if (io) {
-      io.emit("application-status-updated", {
-        applicationId: application._id,
-        citizenId: application.citizenId,
-        status: application.status,
-        application,
-      });
-    }
-
-    res.json({
-      message: "Application status updated",
+    console.log('✅ Application created:', application._id);
+    res.status(201).json({
+      success: true,
+      message: "Application submitted successfully",
       application,
     });
-  } catch (err) {
+  } catch (error) {
+    console.error('❌ Error creating application:', error.message);
+    console.error('❌ Error details:', error);
+    
     res.status(500).json({
-      message: "Failed to update status",
-      error: err.message,
+      success: false,
+      message: "Failed to submit application: " + error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 });
 
-// POST /api/applications/upload-documents
-router.post("/upload-documents", protect, upload.any(), async (req, res) => {
+// Create a new Apply permit application
+router.post("/apply", async (req, res) => {
   try {
-    const { applicationId } = req.body;
+    console.log('📝 Creating Apply permit for user:', req.user.email);
 
-    if (!applicationId) {
+    const payload = {
+      ...req.body,
+      applicationType: "Apply",
+      userId: req.user._id,
+    };
+
+    // Basic validation
+    if (!payload.applicant || !payload.contact) {
+      console.warn('⚠️  Missing required fields:', { 
+        hasApplicant: !!payload.applicant, 
+        hasContact: !!payload.contact 
+      });
       return res.status(400).json({
-        message: "Application ID is required",
+        success: false,
+        message: "Missing applicant or contact information",
       });
     }
 
-    const application = await Application.findById(applicationId);
+    const application = await Application.create(payload);
+
+    console.log('✅ Apply permit created:', application._id);
+    res.status(201).json({
+      success: true,
+      message: "Apply permit submitted",
+      application,
+    });
+  } catch (error) {
+    console.error('❌ Error creating Apply permit:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to create apply permit: " + error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+});
+
+// Create a renew permit application linked to an existing application
+router.post("/renew", async (req, res) => {
+  try {
+    console.log('📝 Creating Renew permit for user:', req.user.email);
+
+    const { previousApplicationId } = req.body;
+
+    if (!previousApplicationId) {
+      return res.status(400).json({
+        success: false,
+        message: "previousApplicationId is required to create a renewal",
+      });
+    }
+
+    // find previous application
+    const previous = await Application.findById(previousApplicationId);
+
+    if (!previous) {
+      return res.status(404).json({
+        success: false,
+        message: "Previous application not found",
+      });
+    }
+
+    // Merge some fields from previous application as defaults for renewal
+    const defaults = {
+      applicant: previous.applicant,
+      contact: previous.contact,
+      address: previous.address,
+      businessInfo: previous.businessInfo,
+    };
+
+    const payload = {
+      ...defaults,
+      ...req.body,
+      applicationType: "Renew",
+      previousApplicationId,
+      userId: req.user._id,
+    };
+
+    const renewal = await Application.create(payload);
+
+    console.log('✅ Renewal application created:', renewal._id);
+    res.status(201).json({
+      success: true,
+      message: "Renewal application submitted",
+      renewal,
+    });
+  } catch (error) {
+    console.error('❌ Error creating renewal:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to create renewal: " + error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+});
+
+// Update requirements/documents for a submitted application
+router.patch("/:id/requirements", async (req, res) => {
+  try {
+    console.log('🔄 Updating requirements for application:', req.params.id);
+
+    const requirements = req.body?.requirements || {};
+    if (typeof requirements !== "object") {
+      return res.status(400).json({
+        success: false,
+        message: "Requirements must be an object.",
+      });
+    }
+
+    const application = await Application.findByIdAndUpdate(
+      req.params.id,
+      {
+        $set: {
+          requirements: {
+            ...(req.body.requirements || {}),
+          },
+          updatedAt: new Date(),
+        },
+      },
+      { new: true },
+    );
 
     if (!application) {
-      return res.status(404).json({
-        message: "Application not found",
+      return res.status(404).json({ 
+        success: false, 
+        message: "Application not found." 
       });
     }
 
-    const documents =
-      application.documents instanceof Map
-        ? Object.fromEntries(application.documents)
-        : application.documents || {};
+    console.log('✅ Requirements updated for:', req.params.id);
+    res.status(200).json({
+      success: true,
+      message: "Requirements updated successfully",
+      application,
+    });
+  } catch (error) {
+    console.error('❌ Error updating requirements:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to update requirements: " + error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+});
 
-    const documentStatuses =
-      application.documentStatuses instanceof Map
-        ? Object.fromEntries(application.documentStatuses)
-        : application.documentStatuses || {};
+// Get all applications for the logged-in user
+router.get("/", async (req, res) => {
+  try {
+    console.log('📊 Fetching applications for user:', req.user.email);
 
-    (req.files || []).forEach((file) => {
-      documents[file.fieldname] = file.filename;
-      documentStatuses[file.fieldname] = "Pending";
+    const applications = await Application.find({ userId: req.user._id }).sort({ 
+      createdAt: -1 
     });
 
-    application.documents = documents;
-    application.documentStatuses = documentStatuses;
-    application.status = "Pending";
-
-    await application.save();
-
-    res.json({
-      message: "Documents uploaded, application pending review",
-      documents,
-      documentStatuses,
+    console.log('✅ Found', applications.length, 'applications');
+    res.json({ 
+      success: true, 
+      applications,
+      count: applications.length,
     });
-  } catch (err) {
-    res.status(500).json({
-      message: "Failed to upload documents",
-      error: err.message,
+  } catch (error) {
+    console.error('❌ Error fetching applications:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to fetch applications: " + error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+});
+
+// Get single application by id
+router.get("/:id", async (req, res) => {
+  try {
+    console.log('🔍 Fetching application:', req.params.id);
+
+    const application = await Application.findById(req.params.id);
+
+    if (!application) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Application not found" 
+      });
+    }
+
+    // Check if user owns this application
+    if (application.userId && application.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "You don't have permission to access this application",
+      });
+    }
+
+    console.log('✅ Application found:', req.params.id);
+    res.json({ 
+      success: true, 
+      application 
+    });
+  } catch (error) {
+    console.error('❌ Error fetching application:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to fetch application: " + error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 });

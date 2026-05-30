@@ -1,232 +1,64 @@
-const express = require("express");
-const mongoose = require("mongoose");
+const express = require('express');
+const Payment = require('../models/Payment');
+
 const router = express.Router();
 
-const Payment = require("../models/Payment");
-const Application = require("../models/Application");
-const BlockchainRecord = require("../models/BlockchainRecord");
-const hashPermit = require("../utils/hashPermit");
-
-const {
-  Connection,
-  Keypair,
-  PublicKey,
-  Transaction,
-  TransactionInstruction,
-  sendAndConfirmTransaction,
-} = require("@solana/web3.js");
-
-const MEMO_PROGRAM_ID = new PublicKey(
-  "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
-);
-
-const saveHashToBlockchain = async (hash) => {
-  if (!process.env.SOLANA_SECRET_KEY) {
-    return `SIMULATED-${Date.now()}`;
-  }
-
-  const secretKey = Uint8Array.from(
-    JSON.parse(process.env.SOLANA_SECRET_KEY)
-  );
-
-  const payer = Keypair.fromSecretKey(secretKey);
-
-  const connection = new Connection(
-    process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
-    "confirmed"
-  );
-
-  const instruction = new TransactionInstruction({
-    keys: [],
-    programId: MEMO_PROGRAM_ID,
-    data: Buffer.from(`TrustPermit:${hash}`, "utf8"),
-  });
-
-  const transaction = new Transaction().add(instruction);
-
-  return await sendAndConfirmTransaction(connection, transaction, [payer]);
-};
-
-// CREATE PAYMENT
-router.post("/", async (req, res) => {
+// Create a new payment record
+router.post('/', async (req, res) => {
   try {
-    let { applicationId, userId, name, email, amount, paymentMethod } = req.body;
+    const { name, email, amount, method = 'unknown', cardLast4 = '' } = req.body;
 
-    if (!applicationId || !name || !email || !amount || !paymentMethod) {
+    console.log('Payment request body:', req.body);
+
+    if (!name || !email || amount === undefined || amount === null || amount === '') {
       return res.status(400).json({
         success: false,
-        message: "Please complete all payment fields including applicationId.",
+        message: 'Missing required payment fields',
+        payload: req.body,
       });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(applicationId)) {
+    const parsedAmount = Number(amount);
+    if (Number.isNaN(parsedAmount) || parsedAmount <= 0) {
       return res.status(400).json({
         success: false,
-        message: "Invalid application ID.",
+        message: 'Invalid payment amount',
+        payload: req.body,
       });
     }
 
-    const application = await Application.findById(applicationId);
-
-    if (!application) {
-      return res.status(404).json({
-        success: false,
-        message: "Application not found.",
-      });
-    }
-
-    paymentMethod = String(paymentMethod).toLowerCase();
-
-    if (!["card", "gcash"].includes(paymentMethod)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid payment method.",
-      });
-    }
-
-    const paymentData = {
-      applicationId,
+    const payment = await Payment.create({
       name,
       email,
-      amount: Number(amount),
-      paymentMethod,
-      status: "paid",
-      permitReleased: false,
-    };
-
-    if (userId && mongoose.Types.ObjectId.isValid(userId)) {
-      paymentData.userId = userId;
-    }
-
-    const payment = await Payment.create(paymentData);
-
-    res.status(201).json({
-      success: true,
-      message: "Payment saved successfully.",
-      payment,
+      amount: parsedAmount,
+      method,
+      cardLast4,
     });
+
+    res.status(201).json({ success: true, message: 'Payment recorded', payment });
   } catch (error) {
-    console.error("Payment error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: error.message || "Server error while saving payment.",
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// GET ALL PAYMENTS
-router.get("/", async (req, res) => {
+// List payments
+router.get('/', async (req, res) => {
   try {
-    const payments = await Payment.find()
-      .populate("userId", "name email fullName")
-      .populate("applicationId")
-      .populate("blockchainRecord")
-      .sort({ createdAt: -1 });
-
-    res.json({
-      success: true,
-      payments,
-    });
+    const payments = await Payment.find().sort({ createdAt: -1 });
+    res.json({ success: true, payments });
   } catch (error) {
-    console.error("Fetch payments error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch payments.",
-      error: error.message,
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// APPROVE PAYMENT + RELEASE PERMIT + CREATE BLOCKCHAIN RECORD
-router.put("/:id/approve-release", async (req, res) => {
+// Get single payment
+router.get('/:id', async (req, res) => {
   try {
-    const payment = await Payment.findById(req.params.id).populate(
-      "applicationId"
-    );
-
-    if (!payment) {
-      return res.status(404).json({
-        success: false,
-        message: "Payment not found.",
-      });
-    }
-
-    if (!payment.applicationId) {
-      return res.status(400).json({
-        success: false,
-        message: "This payment is not connected to an application.",
-      });
-    }
-
-    const application = payment.applicationId;
-
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    const verificationUrl = `${frontendUrl}/verify/${application._id}`;
-
-    let blockchainRecord = await BlockchainRecord.findOne({
-      permitId: application._id,
-    });
-
-    if (!blockchainRecord) {
-      const hash = hashPermit({
-        permitId: application._id,
-        paymentId: payment._id,
-        businessName: application.businessName,
-        applicationType: application.applicationType,
-        applicant: application.applicant,
-        businessDetails: application.businessDetails,
-        amount: payment.amount,
-        paymentMethod: payment.paymentMethod,
-        verificationUrl,
-        releasedAt: new Date(),
-      });
-
-      const transactionSignature = await saveHashToBlockchain(hash);
-
-      blockchainRecord = await BlockchainRecord.create({
-        permitId: application._id,
-        paymentId: payment._id,
-        hash,
-        transactionSignature,
-        verificationUrl,
-      });
-    }
-
-    await Application.findByIdAndUpdate(
-      application._id,
-      { status: "Approved" },
-      { new: true }
-    );
-
-    payment.status = "approved";
-    payment.permitReleased = true;
-    payment.permitReleasedAt = new Date();
-    payment.verificationUrl = verificationUrl;
-    payment.blockchainRecord = blockchainRecord._id;
-
-    await payment.save();
-
-    const updatedPayment = await Payment.findById(payment._id)
-      .populate("userId", "name email fullName")
-      .populate("applicationId")
-      .populate("blockchainRecord");
-
-    res.json({
-      success: true,
-      message: "Payment approved, permit released, and blockchain record created.",
-      payment: updatedPayment,
-      blockchainRecord,
-      qrValue: verificationUrl,
-    });
+    const payment = await Payment.findById(req.params.id);
+    if (!payment) return res.status(404).json({ success: false, message: 'Not found' });
+    res.json({ success: true, payment });
   } catch (error) {
-    console.error("Approve release error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to approve payment and release permit.",
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 

@@ -1,34 +1,19 @@
 const mongoose = require("mongoose");
 
-const ApplicationSchema = new mongoose.Schema(
+const applicationSchema = new mongoose.Schema(
   {
-    citizenId: {
+    userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false,
     },
 
-    businessName: {
-      type: String,
-      required: true,
-    },
+    applicationType: String,
 
-    applicationType: {
-      type: String,
-      enum: ["New Application", "Renewal"],
-      default: "New Application",
-    },
-
-    projectType: {
-      type: String,
-      enum: ["Residential", "Commercial"],
-      default: "Residential",
-    },
-
-    zoneType: {
-      type: String,
-      enum: ["Residential Zone", "Commercial Zone"],
-      default: "Residential Zone",
+    taxpayer: {
+      registrantName: String,
+      registrantPosition: String,
+      ownershipType: String,
     },
 
     applicant: {
@@ -36,11 +21,13 @@ const ApplicationSchema = new mongoose.Schema(
       middleName: String,
       lastName: String,
       suffixName: String,
+    },
+
+    personalInfo: {
+      birthDate: String,
       gender: String,
       civilStatus: String,
       nationality: String,
-      contactNumber: String,
-      email: String,
     },
 
     address: {
@@ -56,42 +43,54 @@ const ApplicationSchema = new mongoose.Schema(
       landmark: String,
     },
 
-    businessDetails: {
-      businessArea: String,
+    contact: {
+      telephone: String,
+      mobile: String,
+      fax: String,
+      email: String,
+      tin: String,
+    },
+
+    businessInfo: {
+      businessName: String,
+      projectType: String,
+      zoneType: String,
+      area: String,
       malePersonnel: Number,
       femalePersonnel: Number,
-      ownershipType: String,
+      totalPersonnel: Number,
       lineOfBusiness: String,
-    },
-
-    documents: {
-      type: Map,
-      of: String,
-      default: {},
-    },
-
-    documentStatuses: {
-      type: Map,
-      of: String,
-      default: {},
     },
 
     signature: String,
 
+    requirements: {
+      locational_clearance: String,
+      barangay_clearance: String,
+      fire_safety_certification: String,
+      building_permit: String,
+      wiring_permit: String,
+    },
+
+    // Optional permit metadata
+    permitNumber: String,
+    previousApplicationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Application",
+    },
+
+    expiryDate: Date,
+
     status: {
       type: String,
-      enum: ["Pending", "Approved", "Rejected"],
       default: "Pending",
     },
-
-    assignedStaff: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-    },
-
-    staffNotes: String,
   },
   { timestamps: true }
 );
 
-module.exports = mongoose.model("Application", ApplicationSchema);
+module.exports = mongoose.model(
+  "Application",
+  applicationSchema,
+  "applications"
+);

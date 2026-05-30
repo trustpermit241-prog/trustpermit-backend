@@ -1,86 +1,15 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 const paymentSchema = new mongoose.Schema(
   {
-    // Connected application
-    applicationId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Application",
-      required: false,
-      default: null,
-    },
-
-    // User who paid
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: false,
-      default: null,
-    },
-
-    // Payer name
-    name: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    // Payer email
-    email: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    // Payment amount
-    amount: {
-      type: Number,
-      required: true,
-    },
-
-    // Payment method
-    paymentMethod: {
-      type: String,
-      required: true,
-      lowercase: true,
-      enum: ["card", "gcash"],
-    },
-
-    // Payment status
-    status: {
-      type: String,
-      enum: ["pending", "paid", "approved", "failed"],
-      default: "paid",
-    },
-
-    // Permit released status
-    permitReleased: {
-      type: Boolean,
-      default: false,
-    },
-
-    // Permit released date
-    permitReleasedAt: {
-      type: Date,
-      default: null,
-    },
-
-    // QR verification link
-    verificationUrl: {
-      type: String,
-      default: "",
-    },
-
-    // Solana blockchain proof
-    blockchainRecord: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "BlockchainRecord",
-      default: null,
-    },
+    name: String,
+    email: String,
+    amount: Number,
+    method: String,
+    cardLast4: String,
+    status: { type: String, default: 'Completed' },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
-module.exports = mongoose.model("Payment", paymentSchema);
+module.exports = mongoose.model('Payment', paymentSchema, 'payments');

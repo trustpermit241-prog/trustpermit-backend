@@ -1,24 +1,24 @@
-const express = require("express");
+const express = require('express');
+const crypto = require('crypto');
+const User = require('../models/User');
+
 const router = express.Router();
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const User = require("../models/User");
-const SystemLog = require("../models/SystemLog");
-const protect = require("../middleware/authMiddleware");
 
-// ====================== REGISTER ======================
-router.post("/register", async (req, res) => {
-  const { fullName, email, password } = req.body;
+function hashPassword(password, salt) {
+  return crypto
+    .pbkdf2Sync(password, salt, 100000, 64, 'sha512')
+    .toString('hex');
+}
 
-  if (!fullName || !email || !password) {
-    return res.status(400).json({ message: "All fields required" });
-  }
+function generateApiToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
 
+router.post('/register', async (req, res) => {
   try {
-    const existingUser = await User.findOne({ email });
-    if (existingUser)
-      return res.status(400).json({ message: "Email already registered" });
+    const { fullName, email, password } = req.body;
 
+<<<<<<< HEAD
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await User.create({
@@ -92,16 +92,53 @@ router.post("/create", async (req, res) => {
       await SystemLog.create({
         type: logType,
         message: `${normalizedRole.charAt(0).toUpperCase() + normalizedRole.slice(1)} ${userName} created`,
+=======
+    if (!fullName || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name, email, and password are required.',
+>>>>>>> 7d686e5afb69f5ebe8b0b58cae1f9ecde2078447
       });
-    } catch (logError) {
-      console.error("Error creating system log for new user:", logError);
     }
 
-    return res.status(201).json({
-      message: `${normalizedRole} account created successfully`,
-      user,
-      token,
+    const normalizedEmail = String(email).toLowerCase().trim();
+    const existing = await User.findOne({ email: normalizedEmail });
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: 'Email already registered.',
+      });
+    }
+
+    const salt = crypto.randomBytes(16).toString('hex');
+    const passwordHash = hashPassword(password, salt);
+
+    const apiToken = generateApiToken();
+    const user = await User.create({
+      fullName: fullName.trim(),
+      email: normalizedEmail,
+      salt,
+      passwordHash,
+      apiToken,
     });
+
+    return res.status(201).json({
+      success: true,
+      message: 'User registered successfully.',
+      user: {
+        id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+      },
+      token: apiToken,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to register user.',
+      error: error.message,
+    });
+<<<<<<< HEAD
   } catch (err) {
     console.error("Create user error:", err);
     return res.status(500).json({ message: "Server error" });
@@ -139,24 +176,67 @@ router.post("/login", async (req, res) => {
       await SystemLog.create({
         type: logType,
         message: `${userName} logged in`,
+=======
+  }
+});
+
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and password are required.',
+>>>>>>> 7d686e5afb69f5ebe8b0b58cae1f9ecde2078447
       });
-    } catch (logError) {
-      console.error("Error creating system log for login:", logError);
     }
 
+<<<<<<< HEAD
     res.json({
       token,
       role: user.role,
       userId: user._id,
+=======
+    const normalizedEmail = String(email).toLowerCase().trim();
+    const user = await User.findOne({ email: normalizedEmail });
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid login credentials.',
+      });
+    }
+
+    const passwordHash = hashPassword(password, user.salt);
+    if (passwordHash !== user.passwordHash) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid login credentials.',
+      });
+    }
+
+    const apiToken = user.apiToken || generateApiToken();
+    if (!user.apiToken) {
+      user.apiToken = apiToken;
+      await user.save();
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Login successful.',
+>>>>>>> 7d686e5afb69f5ebe8b0b58cae1f9ecde2078447
       user: {
-        _id: user._id,
         id: user._id,
+<<<<<<< HEAD
         name: user.fullName,
+=======
+>>>>>>> 7d686e5afb69f5ebe8b0b58cae1f9ecde2078447
         fullName: user.fullName,
         email: user.email,
-        role: user.role,
       },
+      token: apiToken,
     });
+<<<<<<< HEAD
   } catch (err) {
     console.error("Login route error:", err);
     res.status(500).json({ message: "Server error" });
@@ -237,6 +317,14 @@ router.post("/reset-password", async (req, res) => {
   } catch (err) {
     console.error("Reset password error:", err);
     res.status(500).json({ message: "Failed to reset password." });
+=======
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to authenticate user.',
+      error: error.message,
+    });
+>>>>>>> 7d686e5afb69f5ebe8b0b58cae1f9ecde2078447
   }
 });
 

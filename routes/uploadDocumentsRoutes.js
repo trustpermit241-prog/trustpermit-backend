@@ -109,6 +109,17 @@ router.post("/", authMiddleware, upload.array("documents"), async (req, res) => 
   }
 });
 
+// ===================== FETCH ALL UPLOADED DOCUMENTS =====================
+router.get("/", authMiddleware, async (req, res) => {
+  try {
+    const documents = await UploadedDocument.find({}).sort({ createdAt: -1 });
+    return res.status(200).json(documents);
+  } catch (error) {
+    console.error("Fetch all uploaded documents error:", error);
+    return res.status(500).json({ message: "Failed to fetch uploaded documents", error: error.message });
+  }
+});
+
 // ===================== FETCH DOCUMENTS BY APPLICATION ID =====================
 router.get("/:applicationId", authMiddleware, async (req, res) => {
   try {

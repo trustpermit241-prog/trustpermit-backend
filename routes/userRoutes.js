@@ -1,16 +1,25 @@
 const express = require("express");
 const router = express.Router();
-const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+
+function hashPassword(password, salt) {
+  return crypto.pbkdf2Sync(password, salt, 100000, 64, "sha512").toString("hex");
+}
+
+function generateApiToken() {
+  return crypto.randomBytes(32).toString("hex");
+}
 
 // ================= GET ALL CITIZENS =================
 router.get("/", async (req, res) => {
   try {
     const users = await User.find(
-      { role: "citizen" }, // only citizens
-      "-password -resetToken -resetTokenExpiry" // exclude sensitive info
+      { role: "citizen" },
+      "-passwordHash -salt -apiToken"
     );
+
     res.json(users);
   } catch (err) {
     console.error("Error fetching users:", err);
@@ -20,47 +29,67 @@ router.get("/", async (req, res) => {
 
 // ================= CREATE ACCOUNT =================
 router.post("/create", async (req, res) => {
-  const { name, email, password, role } = req.body;
+  const { name, fullName, email, password, role } = req.body;
 
   try {
-    // Check if user already exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser)
-      return res.status(400).json({ message: "User already exists" });
+    if (!email || !password || (!name && !fullName)) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, email, and password are required.",
+      });
+    }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const normalizedEmail = String(email).toLowerCase().trim();
 
-    // Determine if staff/admin
-    const isStaffOrAdmin = role === "staff" || role === "admin";
+    const existingUser = await User.findOne({ email: normalizedEmail });
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: "User already exists",
+      });
+    }
 
-    // Create user
+    const salt = crypto.randomBytes(16).toString("hex");
+    const passwordHash = hashPassword(password, salt);
+
+    const userRole = role || "citizen";
+    const isStaffOrAdmin = userRole === "staff" || userRole === "admin";
+
     const newUser = new User({
-      name,
-      email,
-      password: hashedPassword,
-      role,
+      fullName: fullName || name,
+      email: normalizedEmail,
+      passwordHash,
+      salt,
+      role: userRole,
       status: "Active",
-      isVerified: isStaffOrAdmin ? true : false, // auto-verify staff/admin
+      isVerified: isStaffOrAdmin ? true : false,
     });
 
     await newUser.save();
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { id: newUser._id, role: newUser.role },
-      process.env.JWT_SECRET || "secret",
-      { expiresIn: "7d" }
-    );
+    const token = generateApiToken();
+
+    newUser.apiToken = token;
+    await newUser.save();
 
     res.status(201).json({
-      message: `${role} account created successfully`,
-      user: newUser,
+      success: true,
+      message: `${userRole} account created successfully`,
+      user: {
+        id: newUser._id,
+        fullName: newUser.fullName,
+        email: newUser.email,
+        role: newUser.role,
+      },
       token,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error", error: err });
+    console.error("CREATE USER ERROR:", err);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: err.message,
+    });
   }
 });
 
@@ -69,29 +98,73 @@ router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const user = await User.findOne({ email });
-    if (!user)
-      return res.status(400).json({ message: "User not found" });
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch)
-      return res.status(400).json({ message: "Invalid credentials" });
-
-    // Only citizens require email verification
-    if (!user.isVerified && user.role === "citizen") {
-      return res.status(403).json({ message: "Please verify your email first" });
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required.",
+      });
     }
 
-    const token = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );  
+    const normalizedEmail = String(email).toLowerCase().trim();
 
-    res.json({ message: "Login successful", user, token });
+    const user = await User.findOne({ email: normalizedEmail });
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid login credentials.",
+      });
+    }
+
+    if (!user.salt || !user.passwordHash) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid login credentials.",
+      });
+    }
+
+    const inputHash = hashPassword(password, user.salt);
+    const isMatch = inputHash === user.passwordHash;
+
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid login credentials.",
+      });
+    }
+
+    if (!user.isVerified && user.role === "citizen") {
+      return res.status(403).json({
+        success: false,
+        message: "Please verify your email first",
+      });
+    }
+
+    const apiToken = user.apiToken || generateApiToken();
+
+    if (!user.apiToken) {
+      user.apiToken = apiToken;
+      await user.save();
+    }
+
+    res.json({
+      success: true,
+      message: "Login successful",
+      user: {
+        id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        role: user.role,
+      },
+      token: apiToken,
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error", error: err });
+    console.error("LOGIN ERROR:", err);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: err.message,
+    });
   }
 });
 

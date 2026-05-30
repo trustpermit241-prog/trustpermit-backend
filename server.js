@@ -2,7 +2,7 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 const http = require("http");
 const { Server } = require("socket.io");
 const path = require("path");
@@ -27,19 +27,35 @@ const Chat = require("./models/Chat");
 // ===================== EXPRESS APP =====================
 const app = express();
 
+// ===================== PASSWORD HELPERS =====================
+function hashPassword(password, salt) {
+  return crypto.pbkdf2Sync(password, salt, 100000, 64, "sha512").toString("hex");
+}
+
+function generateApiToken() {
+  return crypto.randomBytes(32).toString("hex");
+}
+
 // ===================== ALLOWED ORIGINS =====================
 const allowedOrigins = [
   "https://trustpermit.com",
+  "https://www.trustpermit.com",
   "https://trustpermit-backend.onrender.com",
   "http://localhost:3000",
+  "http://localhost:3001",
   "http://localhost:5173",
+  "http://127.0.0.1:3000",
+  "http://127.0.0.1:3001",
 ];
+
+const isLocalhostOrigin = (origin) =>
+  /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin || "");
 
 // ===================== CORS =====================
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || allowedOrigins.includes(origin) || isLocalhostOrigin(origin)) {
         callback(null, true);
       } else {
         console.log("❌ Blocked by CORS:", origin);
@@ -69,9 +85,16 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  path: "/socket.io", // Important for Render deployment
+  path: "/socket.io",
   cors: {
-    origin: allowedOrigins,
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin) || isLocalhostOrigin(origin)) {
+        callback(null, true);
+      } else {
+        console.log("❌ Socket blocked by CORS:", origin);
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   },
   transports: ["websocket", "polling"],
@@ -149,7 +172,6 @@ io.on("connection", (socket) => {
       if (!roomId || !text) return;
 
       let chat = await Chat.findOne({ roomId });
-
       if (!chat) return;
 
       const message = { sender, text, time };
@@ -174,25 +196,71 @@ io.on("connection", (socket) => {
 // ===================== DEFAULT ACCOUNTS =====================
 const createDefaultUser = async (role, email, password) => {
   try {
-    const exists = await User.findOne({ role });
+    const normalizedEmail = String(email).toLowerCase().trim();
 
-    if (!exists) {
-      const hashedPassword = await bcrypt.hash(password, 10);
+    let user = await User.findOne({
+      $or: [{ role }, { email: normalizedEmail }],
+    });
 
+    const salt = crypto.randomBytes(16).toString("hex");
+    const passwordHash = hashPassword(password, salt);
+
+    if (!user) {
       await User.create({
-        email,
-        password: hashedPassword,
-        role,
-        emailVerified: true,
         fullName: role === "admin" ? "Default Admin" : "Default Staff",
+        email: normalizedEmail,
+        passwordHash,
+        salt,
+        role,
+        status: "Active",
+        isVerified: true,
+        apiToken: generateApiToken(),
       });
 
       console.log(`✅ Default ${role} account created`);
     } else {
-      console.log(`ℹ️ ${role} already exists`);
+      let changed = false;
+
+      if (!user.passwordHash || !user.salt) {
+        user.passwordHash = passwordHash;
+        user.salt = salt;
+        changed = true;
+      }
+
+      if (!user.fullName) {
+        user.fullName = role === "admin" ? "Default Admin" : "Default Staff";
+        changed = true;
+      }
+
+      if (!user.role) {
+        user.role = role;
+        changed = true;
+      }
+
+      if (!user.status) {
+        user.status = "Active";
+        changed = true;
+      }
+
+      if (user.isVerified !== true) {
+        user.isVerified = true;
+        changed = true;
+      }
+
+      if (!user.apiToken) {
+        user.apiToken = generateApiToken();
+        changed = true;
+      }
+
+      if (changed) {
+        await user.save();
+        console.log(`✅ Existing ${role} account fixed`);
+      } else {
+        console.log(`ℹ️ ${role} already exists`);
+      }
     }
   } catch (err) {
-    console.error(`❌ Error creating ${role}:`, err);
+    console.error(`❌ Error creating/fixing ${role}:`, err);
   }
 };
 
@@ -226,7 +294,9 @@ app.get("/api/users", async (req, res) => {
   try {
     const filter = {};
     if (req.query.role) filter.role = req.query.role;
-    const users = await User.find(filter, "-password -resetToken -resetTokenExpiry");
+
+    const users = await User.find(filter, "-passwordHash -salt -apiToken");
+
     res.json(users);
   } catch (err) {
     console.error("❌ Error fetching users:", err);
@@ -236,15 +306,18 @@ app.get("/api/users", async (req, res) => {
 
 // ===================== ROOT ROUTES =====================
 app.get("/", (req, res) => res.send("🚀 TrustPermit API running"));
+
 app.get("/api", (req, res) =>
   res.json({ success: true, message: "TrustPermit API is running" })
 );
+
 app.get("/api/test", (req, res) =>
   res.json({ success: true, message: "Backend connected successfully" })
 );
 
 // ===================== SERVER =====================
 const PORT = process.env.PORT || 5000;
+
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌐 Local: http://localhost:${PORT}`);

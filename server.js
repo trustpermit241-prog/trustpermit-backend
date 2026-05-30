@@ -6,6 +6,7 @@ require("dotenv").config();
 const applicationRoutes = require("./routes/applicationRoutes");
 const authRoutes = require("./routes/authRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
+const otpRoutes = require("./routes/otpRoutes");
 
 const app = express();
 
@@ -72,6 +73,7 @@ app.get("/api/health", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/applications", applicationRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/otp", otpRoutes);
 
 // ===== MONGODB CONNECTION =====
 const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URI;

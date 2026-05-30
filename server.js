@@ -3,7 +3,6 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
-const crypto = require("crypto");
 const http = require("http");
 const { Server } = require("socket.io");
 const path = require("path");
@@ -30,23 +29,22 @@ const app = express();
 
 // ===================== ALLOWED ORIGINS =====================
 const allowedOrigins = [
+  "https://trustpermit.com",
+  "https://trustpermit-backend.onrender.com",
   "http://localhost:3000",
   "http://localhost:5173",
-  "https://trustpermit-webclient.vercel.app",
-  "https://trustpermit.com",
-  "https://www.trustpermit.com",
-  "https://trustpermit-frontend.onrender.com",
-  "https://trustpermit-backend.onrender.com",
 ];
 
 // ===================== CORS =====================
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      console.log("❌ Blocked by CORS:", origin);
-      return callback(new Error(`CORS blocked for origin: ${origin}`));
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.log("❌ Blocked by CORS:", origin);
+        callback(new Error("Not allowed by CORS"));
+      }
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -67,15 +65,14 @@ app.use(express.urlencoded({ extended: true }));
 // ===================== STATIC FILES =====================
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// ===================== SOCKET SERVER =====================
+// ===================== SERVER + SOCKET.IO =====================
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  path: "/socket.io", // Must match frontend
+  path: "/socket.io", // Important for Render deployment
   cors: {
     origin: allowedOrigins,
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE"],
   },
   transports: ["websocket", "polling"],
 });
@@ -87,7 +84,8 @@ io.on("connection", (socket) => {
   console.log("🟢 User connected:", socket.id);
 
   socket.on("join_chat_room", ({ roomId }) => {
-    if (roomId) socket.join(roomId);
+    if (!roomId) return;
+    socket.join(roomId);
   });
 
   socket.on("user_request_staff", async (data) => {
@@ -96,6 +94,7 @@ io.on("connection", (socket) => {
       socket.join(roomId);
 
       let chat = await Chat.findOne({ roomId });
+
       if (!chat) {
         chat = await Chat.create({
           userId: data.userId,
@@ -119,46 +118,49 @@ io.on("connection", (socket) => {
     }
   });
 
-  const approveChat = async ({ roomId }) => {
-    if (!roomId) return;
+  socket.on("staff_approve_chat", async ({ roomId }) => {
     try {
+      if (!roomId) return;
+
       const chat = await Chat.findOneAndUpdate(
         { roomId },
         { status: "approved" },
         { new: true }
       );
+
       if (!chat) return;
 
       socket.join(roomId);
+
       io.to(roomId).emit("chat_approved", {
         roomId,
         message: "City Hall staff approved your chat. You may now send a message.",
         chat,
       });
+
       io.emit("chat_updated", chat);
     } catch (err) {
-      console.error("❌ approveChat error:", err);
+      console.error("❌ staff_approve_chat error:", err);
     }
-  };
-
-  socket.on("staff_approve_chat", approveChat);
-  socket.on("staff_accept_chat", approveChat);
+  });
 
   socket.on("send_chat_message", async ({ roomId, sender, text, time }) => {
-    if (!roomId || !text) return;
     try {
-      const chat = await Chat.findOne({ roomId });
+      if (!roomId || !text) return;
+
+      let chat = await Chat.findOne({ roomId });
+
       if (!chat) return;
 
-      const message = { roomId, sender, text, time, createdAt: new Date() };
-      chat.messages.push({ sender, text, time });
+      const message = { sender, text, time };
+
+      chat.messages.push(message);
       chat.lastMessage = text;
+
       await chat.save();
 
       io.to(roomId).emit("receive_chat_message", message);
       io.emit("chat_updated", chat);
-
-      if (sender === "user") io.emit("staff_receive_message", message);
     } catch (err) {
       console.error("❌ send_chat_message error:", err);
     }
@@ -169,12 +171,14 @@ io.on("connection", (socket) => {
   });
 });
 
-// ===================== DEFAULT USERS =====================
+// ===================== DEFAULT ACCOUNTS =====================
 const createDefaultUser = async (role, email, password) => {
   try {
     const exists = await User.findOne({ role });
+
     if (!exists) {
       const hashedPassword = await bcrypt.hash(password, 10);
+
       await User.create({
         email,
         password: hashedPassword,
@@ -182,6 +186,7 @@ const createDefaultUser = async (role, email, password) => {
         emailVerified: true,
         fullName: role === "admin" ? "Default Admin" : "Default Staff",
       });
+
       console.log(`✅ Default ${role} account created`);
     } else {
       console.log(`ℹ️ ${role} already exists`);
@@ -196,22 +201,15 @@ mongoose
   .connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/trustpermit")
   .then(async () => {
     console.log("✅ MongoDB connected");
+
     await createDefaultUser("admin", "admin@trustpermit.com", "admin123");
     await createDefaultUser("staff", "staff@cityhall.gov", "staff123");
   })
-  .catch((err) => console.error("❌ MongoDB connection error:", err));
+  .catch((err) => {
+    console.error("❌ MongoDB connection error:", err);
+  });
 
-mongoose.connection.on("connected", () =>
-  console.log("✅ MongoDB connection established")
-);
-mongoose.connection.on("error", (err) =>
-  console.error("❌ MongoDB connection error:", err)
-);
-mongoose.connection.on("disconnected", () =>
-  console.log("⚠️ MongoDB disconnected")
-);
-
-// ===================== API ROUTES =====================
+// ===================== ROUTES =====================
 app.use("/api/auth", authRoutes);
 app.use("/api/clearance", clearanceRoutes);
 app.use("/api/otp", otpRoutes);
@@ -238,14 +236,15 @@ app.get("/api/users", async (req, res) => {
 
 // ===================== ROOT ROUTES =====================
 app.get("/", (req, res) => res.send("🚀 TrustPermit API running"));
-app.get("/api", (req, res) => res.json({ success: true, message: "TrustPermit API is running" }));
+app.get("/api", (req, res) =>
+  res.json({ success: true, message: "TrustPermit API is running" })
+);
 app.get("/api/test", (req, res) =>
   res.json({ success: true, message: "Backend connected successfully" })
 );
 
 // ===================== SERVER =====================
 const PORT = process.env.PORT || 5000;
-
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌐 Local: http://localhost:${PORT}`);

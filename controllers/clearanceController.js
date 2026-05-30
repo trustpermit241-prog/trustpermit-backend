@@ -1,6 +1,6 @@
 const Clearance = require("../models/Clearance");
-const createBlock = require("../blockchain/ledger");
 
+const { createLedgerHash } = require("../blockchain/ledger");
 // ===================== REQUEST CLEARANCE =====================
 exports.requestClearance = async (req, res) => {
   try {

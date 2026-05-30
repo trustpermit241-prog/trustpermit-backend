@@ -74,12 +74,12 @@ app.use("/api/applications", applicationRoutes);
 app.use("/api/payments", paymentRoutes);
 
 // ===== MONGODB CONNECTION =====
-const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URI;
 const MONGO_DB_NAME = process.env.MONGO_DB_NAME || 'trustpermit';
 
 if (!MONGODB_URI) {
-  console.error("❌ MONGODB_URI is not set in environment variables");
-  console.error("Please set MONGODB_URI in your .env file or Render environment");
+  console.error("❌ MONGODB_URI or MONGO_URI is not set in environment variables");
+  console.error("Please set MONGODB_URI (or MONGO_URI) in your Render environment");
 } else {
   mongoose
     .connect(MONGODB_URI, {

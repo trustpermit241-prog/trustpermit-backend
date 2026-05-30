@@ -85,6 +85,11 @@ if (!MONGODB_URI) {
     .connect(MONGODB_URI, {
       dbName: MONGO_DB_NAME,
       maxPoolSize: 10,
+      serverSelectionTimeoutMS: 10000,
+      connectTimeoutMS: 10000,
+      socketTimeoutMS: 45000,
+      bufferCommands: false,
+      autoIndex: false,
     })
     .then(() => {
       console.log(`✅ MongoDB Connected Successfully to ${MONGO_DB_NAME}`);
@@ -96,6 +101,10 @@ if (!MONGODB_URI) {
 }
 
 // ===== MONGODB EVENT HANDLERS =====
+mongoose.connection.on('error', (err) => {
+  console.error('❌ MongoDB connection error:', err.message);
+});
+
 mongoose.connection.on('disconnected', () => {
   console.warn('⚠️  MongoDB disconnected');
 });

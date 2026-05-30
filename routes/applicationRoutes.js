@@ -1,4 +1,5 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const Application = require("../models/Application");
 const User = require("../models/User");
 
@@ -22,6 +23,14 @@ async function authorize(req, res, next) {
       return res.status(401).json({ 
         success: false, 
         message: 'Invalid authorization token.',
+      });
+    }
+
+    if (mongoose.connection.readyState !== 1) {
+      console.error('❌ Authorization blocked: MongoDB not connected.');
+      return res.status(503).json({
+        success: false,
+        message: 'Database temporarily unavailable. Please try again later.',
       });
     }
 

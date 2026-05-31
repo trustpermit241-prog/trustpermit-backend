@@ -1,7 +1,11 @@
 const express = require("express");
 const mongoose = require("mongoose");
+const crypto = require("crypto");
+
 const Payment = require("../models/Payment");
 const Application = require("../models/Application");
+const BlockchainRecord = require("../models/BlockchainRecord");
+const saveHashToBlockchain = require("../services/solanaService");
 
 const router = express.Router();
 
@@ -112,8 +116,13 @@ router.put("/:id/approve-release", async (req, res) => {
     payment.permitReleasedAt = new Date();
 
     let application = null;
+    let blockchainRecord = null;
+    let solanaError = null;
 
-    if (payment.applicationId && mongoose.Types.ObjectId.isValid(payment.applicationId)) {
+    const hasApplicationId =
+      payment.applicationId && mongoose.Types.ObjectId.isValid(payment.applicationId);
+
+    if (hasApplicationId) {
       application = await Application.findByIdAndUpdate(
         payment.applicationId,
         {
@@ -123,11 +132,59 @@ router.put("/:id/approve-release", async (req, res) => {
         },
         { new: true }
       );
-    }
 
-    payment.verificationUrl = payment.applicationId
-      ? `https://trustpermit-webclient.vercel.app/verify/${payment.applicationId}`
-      : "";
+      const verificationUrl = `https://trustpermit-webclient.vercel.app/verify/${payment.applicationId}`;
+      payment.verificationUrl = verificationUrl;
+
+      const existingRecord = await BlockchainRecord.findOne({
+        permitId: payment.applicationId,
+        paymentId: payment._id,
+      });
+
+      if (existingRecord) {
+        blockchainRecord = existingRecord;
+
+        payment.blockchainRecord = {
+          hash: existingRecord.hash,
+          transactionSignature: existingRecord.transactionSignature,
+          createdAt: existingRecord.createdAt || new Date(),
+        };
+      } else {
+        const hash = crypto
+          .createHash("sha256")
+          .update(`${payment._id}-${payment.applicationId}-${Date.now()}`)
+          .digest("hex");
+
+        let transactionSignature = "";
+
+        try {
+          transactionSignature = await saveHashToBlockchain(hash);
+        } catch (err) {
+          solanaError = err.message;
+          console.error("Solana transaction failed:", err);
+        }
+
+        if (transactionSignature && transactionSignature !== "BLOCKCHAIN_DISABLED" && transactionSignature !== "BLOCKCHAIN_ERROR") {
+          blockchainRecord = await BlockchainRecord.create({
+            permitId: payment.applicationId,
+            paymentId: payment._id,
+            hash,
+            transactionSignature,
+            verificationUrl,
+          });
+
+          payment.blockchainRecord = {
+            hash,
+            transactionSignature,
+            createdAt: new Date(),
+          };
+        } else {
+          solanaError = transactionSignature || solanaError || "Solana transaction failed.";
+        }
+      }
+    } else {
+      payment.verificationUrl = "";
+    }
 
     await payment.save();
 
@@ -137,6 +194,7 @@ router.put("/:id/approve-release", async (req, res) => {
       io.emit("payment-updated", {
         payment,
         application,
+        blockchainRecord,
       });
 
       if (application) {
@@ -148,9 +206,13 @@ router.put("/:id/approve-release", async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Payment approved and permit released",
+      message: blockchainRecord
+        ? "Payment approved, permit released, and Solana proof saved"
+        : "Payment approved and permit released. Solana proof was not created.",
       payment,
       application,
+      blockchainRecord,
+      solanaError,
     });
   } catch (error) {
     console.error("Approve release payment error:", error);

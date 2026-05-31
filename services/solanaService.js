@@ -15,32 +15,40 @@ const path = require("path");
 const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
 
 // Wallet path
-const walletPath = path.join(
-  os.homedir(),
-  ".config",
-  "solana",
-  "id.json"
-);
+const walletPath = path.join(os.homedir(), ".config", "solana", "id.json");
 
 // ===== TEMPORARY RENDER SAFE MODE =====
 let wallet = null;
 
-if (fs.existsSync(walletPath)) {
-  const secretKey = Uint8Array.from(
-    JSON.parse(fs.readFileSync(walletPath, "utf-8"))
-  );
+if (process.env.SOLANA_SECRET_KEY) {
+  try {
+    const secretKey = Uint8Array.from(JSON.parse(process.env.SOLANA_SECRET_KEY));
+    wallet = Keypair.fromSecretKey(secretKey);
+    console.log("✅ Solana wallet loaded from environment");
+  } catch (err) {
+    console.error("❌ Invalid SOLANA_SECRET_KEY:", err.message);
+  }
+} else if (fs.existsSync(walletPath)) {
+  try {
+    const secretKey = Uint8Array.from(
+      JSON.parse(fs.readFileSync(walletPath, "utf-8"))
+    );
 
-  wallet = Keypair.fromSecretKey(secretKey);
+    wallet = Keypair.fromSecretKey(secretKey);
 
-  console.log("✅ Solana wallet loaded");
+    console.log("✅ Solana wallet loaded from local file");
+  } catch (err) {
+    console.error("❌ Failed to load Solana wallet file:", err.message);
+  }
 } else {
   console.log("⚠️ Solana wallet not found. Blockchain disabled.");
 }
 
 // Send transaction
-const saveHashToBlockchain = async () => {
+const saveHashToBlockchain = async (hash) => {
   try {
-    // Prevent crash if wallet missing
+    console.log("Saving hash to blockchain:", hash);
+
     if (!wallet) {
       console.log("⚠️ Skipping blockchain transaction");
       return "BLOCKCHAIN_DISABLED";
@@ -54,11 +62,9 @@ const saveHashToBlockchain = async () => {
       })
     );
 
-    const signature = await sendAndConfirmTransaction(
-      connection,
-      transaction,
-      [wallet]
-    );
+    const signature = await sendAndConfirmTransaction(connection, transaction, [
+      wallet,
+    ]);
 
     console.log("Blockchain Transaction Signature:", signature);
 

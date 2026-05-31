@@ -8,7 +8,20 @@ const applicationSchema = new mongoose.Schema(
       required: false,
     },
 
-    applicationType: String,
+    citizenId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: false,
+    },
+
+    applicationType: {
+      type: String,
+      default: "New Application",
+    },
+
+    projectType: String,
+    zoneType: String,
+    businessName: String,
 
     taxpayer: {
       registrantName: String,
@@ -20,7 +33,15 @@ const applicationSchema = new mongoose.Schema(
       firstName: String,
       middleName: String,
       lastName: String,
+      suffix: String,
       suffixName: String,
+
+      gender: String,
+      civilStatus: String,
+      nationality: String,
+      contactNumber: String,
+      email: String,
+      birthDate: String,
     },
 
     personalInfo: {
@@ -38,6 +59,7 @@ const applicationSchema = new mongoose.Schema(
       street: String,
       building: String,
       houseNo: String,
+      houseNumber: String,
       block: String,
       lot: String,
       landmark: String,
@@ -46,6 +68,7 @@ const applicationSchema = new mongoose.Schema(
     contact: {
       telephone: String,
       mobile: String,
+      contactNumber: String,
       fax: String,
       email: String,
       tin: String,
@@ -56,10 +79,38 @@ const applicationSchema = new mongoose.Schema(
       projectType: String,
       zoneType: String,
       area: String,
+      businessArea: String,
       malePersonnel: Number,
       femalePersonnel: Number,
       totalPersonnel: Number,
       lineOfBusiness: String,
+    },
+
+    businessDetails: {
+      businessName: String,
+      projectType: String,
+      zoneType: String,
+      businessArea: String,
+      area: String,
+      malePersonnel: Number,
+      femalePersonnel: Number,
+      totalPersonnel: Number,
+      lineOfBusiness: String,
+    },
+
+    documents: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
+
+    attachments: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
+
+    uploadedDocuments: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
     },
 
     signature: String,
@@ -72,8 +123,8 @@ const applicationSchema = new mongoose.Schema(
       wiring_permit: String,
     },
 
-    // Optional permit metadata
     permitNumber: String,
+
     previousApplicationId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Application",
@@ -86,7 +137,10 @@ const applicationSchema = new mongoose.Schema(
       default: "Pending",
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    strict: false,
+  }
 );
 
 module.exports = mongoose.model(

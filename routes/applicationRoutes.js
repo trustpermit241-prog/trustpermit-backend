@@ -7,17 +7,183 @@ const router = express.Router();
 
 router.use(authMiddleware);
 
+// ===================== NORMALIZE PAYLOAD =====================
+const normalizeApplicationPayload = (body, userId, extra = {}) => {
+  return {
+    ...body,
+
+    userId,
+    citizenId: body.citizenId || userId,
+
+    applicationType:
+      body.applicationType ||
+      body.type ||
+      extra.applicationType ||
+      "New Application",
+
+    projectType: body.projectType || body.project || "",
+    zoneType: body.zoneType || body.zone || "",
+
+    businessName:
+      body.businessName ||
+      body.businessDetails?.businessName ||
+      body.businessInfo?.businessName ||
+      "",
+
+    applicant: {
+      firstName:
+        body.applicant?.firstName ||
+        body.firstName ||
+        body.givenName ||
+        "",
+
+      middleName:
+        body.applicant?.middleName ||
+        body.middleName ||
+        "",
+
+      lastName:
+        body.applicant?.lastName ||
+        body.lastName ||
+        body.surname ||
+        "",
+
+      suffix:
+        body.applicant?.suffix ||
+        body.applicant?.suffixName ||
+        body.suffix ||
+        "",
+
+      gender:
+        body.applicant?.gender ||
+        body.gender ||
+        "",
+
+      civilStatus:
+        body.applicant?.civilStatus ||
+        body.civilStatus ||
+        "",
+
+      nationality:
+        body.applicant?.nationality ||
+        body.nationality ||
+        "",
+
+      contactNumber:
+        body.applicant?.contactNumber ||
+        body.contactNumber ||
+        body.phone ||
+        body.mobileNumber ||
+        "",
+
+      email:
+        body.applicant?.email ||
+        body.email ||
+        "",
+    },
+
+    address: {
+      province:
+        body.address?.province ||
+        body.province ||
+        "",
+
+      city:
+        body.address?.city ||
+        body.city ||
+        "",
+
+      barangay:
+        body.address?.barangay ||
+        body.barangay ||
+        "",
+
+      subdivision:
+        body.address?.subdivision ||
+        body.subdivision ||
+        "",
+
+      street:
+        body.address?.street ||
+        body.street ||
+        "",
+
+      building:
+        body.address?.building ||
+        body.building ||
+        "",
+
+      houseNo:
+        body.address?.houseNo ||
+        body.address?.houseNumber ||
+        body.houseNo ||
+        body.houseNumber ||
+        "",
+
+      landmark:
+        body.address?.landmark ||
+        body.landmark ||
+        "",
+    },
+
+    businessDetails: {
+      businessName:
+        body.businessDetails?.businessName ||
+        body.businessName ||
+        body.businessInfo?.businessName ||
+        "",
+
+      lineOfBusiness:
+        body.businessDetails?.lineOfBusiness ||
+        body.lineOfBusiness ||
+        body.businessLine ||
+        "",
+
+      businessArea:
+        body.businessDetails?.businessArea ||
+        body.businessArea ||
+        body.area ||
+        "",
+
+      malePersonnel:
+        body.businessDetails?.malePersonnel ||
+        body.malePersonnel ||
+        0,
+
+      femalePersonnel:
+        body.businessDetails?.femalePersonnel ||
+        body.femalePersonnel ||
+        0,
+
+      ...body.businessDetails,
+    },
+
+    businessInfo: {
+      ...body.businessInfo,
+    },
+
+    documents: body.documents || body.uploadedDocuments || {},
+    attachments: body.attachments || body.files || {},
+
+    signature: body.signature || "",
+
+    ...extra,
+  };
+};
+
 // ===================== CREATE APPLICATION =====================
 router.post("/", async (req, res) => {
   try {
     const userId = req.user._id || req.user.id;
 
-    const payload = {
-      ...req.body,
-      userId,
-    };
+    const payload = normalizeApplicationPayload(req.body, userId);
 
     const application = await Application.create(payload);
+
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("new-application", application);
+    }
 
     return res.status(201).json({
       success: true,
@@ -39,13 +205,16 @@ router.post("/apply", async (req, res) => {
   try {
     const userId = req.user._id || req.user.id;
 
-    const payload = {
-      ...req.body,
+    const payload = normalizeApplicationPayload(req.body, userId, {
       applicationType: req.body.applicationType || "New Application",
-      userId,
-    };
+    });
 
     const application = await Application.create(payload);
+
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("new-application", application);
+    }
 
     return res.status(201).json({
       success: true,
@@ -75,7 +244,7 @@ router.post("/renew", async (req, res) => {
       });
     }
 
-    const previous = await Application.findById(previousApplicationId);
+    const previous = await Application.findById(previousApplicationId).lean();
 
     if (!previous) {
       return res.status(404).json({
@@ -84,8 +253,7 @@ router.post("/renew", async (req, res) => {
       });
     }
 
-    const payload = {
-      ...req.body,
+    const payload = normalizeApplicationPayload(req.body, userId, {
       applicant: req.body.applicant || previous.applicant,
       contact: req.body.contact || previous.contact,
       address: req.body.address || previous.address,
@@ -94,10 +262,14 @@ router.post("/renew", async (req, res) => {
       businessName: req.body.businessName || previous.businessName,
       applicationType: "Renewal",
       previousApplicationId,
-      userId,
-    };
+    });
 
     const renewal = await Application.create(payload);
+
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("new-application", renewal);
+    }
 
     return res.status(201).json({
       success: true,
@@ -136,7 +308,9 @@ router.patch("/:id/requirements", async (req, res) => {
         },
       },
       { new: true }
-    );
+    )
+      .populate("userId", "fullName email role")
+      .populate("citizenId", "fullName email role");
 
     if (!application) {
       return res.status(404).json({
@@ -181,7 +355,9 @@ router.patch("/:id/status", async (req, res) => {
         },
       },
       { new: true }
-    );
+    )
+      .populate("userId", "fullName email role")
+      .populate("citizenId", "fullName email role");
 
     if (!application) {
       return res.status(404).json({
@@ -219,12 +395,16 @@ router.get("/", async (req, res) => {
     let query = {};
 
     if (role === "citizen" || role === "user") {
-      query = { userId };
+      query = {
+        $or: [{ userId }, { citizenId: userId }],
+      };
     }
 
     const applications = await Application.find(query)
       .populate("userId", "fullName email role")
-      .sort({ createdAt: -1 });
+      .populate("citizenId", "fullName email role")
+      .sort({ createdAt: -1 })
+      .lean();
 
     return res.status(200).json({
       success: true,
@@ -246,9 +426,13 @@ router.get("/my", async (req, res) => {
   try {
     const userId = req.user._id || req.user.id;
 
-    const applications = await Application.find({ userId })
+    const applications = await Application.find({
+      $or: [{ userId }, { citizenId: userId }],
+    })
       .populate("userId", "fullName email role")
-      .sort({ createdAt: -1 });
+      .populate("citizenId", "fullName email role")
+      .sort({ createdAt: -1 })
+      .lean();
 
     return res.status(200).json({
       success: true,
@@ -278,10 +462,10 @@ router.get("/:id", async (req, res) => {
       });
     }
 
-    const application = await Application.findById(req.params.id).populate(
-      "userId",
-      "fullName email role"
-    );
+    const application = await Application.findById(req.params.id)
+      .populate("userId", "fullName email role")
+      .populate("citizenId", "fullName email role")
+      .lean();
 
     if (!application) {
       return res.status(404).json({
@@ -291,8 +475,16 @@ router.get("/:id", async (req, res) => {
     }
 
     const ownerId = String(application.userId?._id || application.userId || "");
+    const citizenId = String(
+      application.citizenId?._id || application.citizenId || ""
+    );
 
-    if (role !== "admin" && role !== "staff" && ownerId !== userId) {
+    if (
+      role !== "admin" &&
+      role !== "staff" &&
+      ownerId !== userId &&
+      citizenId !== userId
+    ) {
       return res.status(403).json({
         success: false,
         message: "You don't have permission to access this application",

@@ -23,6 +23,7 @@ const chatRoutes = require("./routes/chatRoutes");
 // ===================== MODELS =====================
 const User = require("./models/User");
 const Chat = require("./models/Chat");
+const SystemLog = require("./models/SystemLog");
 
 // ===================== EXPRESS APP =====================
 const app = express();
@@ -43,20 +44,14 @@ const allowedOrigins = [
   "https://trustpermit-webclient.vercel.app",
   "https://trustpermit-backend.onrender.com",
   "http://localhost:3000",
-  "http://localhost:3001",
   "http://localhost:5173",
-  "http://127.0.0.1:3000",
-  "http://127.0.0.1:3001",
 ];
-
-const isLocalhostOrigin = (origin) =>
-  /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin || "");
 
 // ===================== CORS =====================
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin) || isLocalhostOrigin(origin)) {
+      if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
         console.log("❌ Blocked by CORS:", origin);
@@ -88,14 +83,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   path: "/socket.io",
   cors: {
-    origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin) || isLocalhostOrigin(origin)) {
-        callback(null, true);
-      } else {
-        console.log("❌ Socket blocked by CORS:", origin);
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
+    origin: allowedOrigins,
     credentials: true,
   },
   transports: ["websocket", "polling"],
@@ -172,7 +160,7 @@ io.on("connection", (socket) => {
     try {
       if (!roomId || !text) return;
 
-      let chat = await Chat.findOne({ roomId });
+      const chat = await Chat.findOne({ roomId });
       if (!chat) return;
 
       const message = { sender, text, time };
@@ -215,10 +203,20 @@ const createDefaultUser = async (role, email, password) => {
         role,
         status: "Active",
         isVerified: true,
+        emailVerified: true,
         apiToken: generateApiToken(),
       });
 
       console.log(`✅ Default ${role} account created`);
+
+      await SystemLog.create({
+        type: "system",
+        message: `Default ${role} account created`,
+        meta: {
+          role,
+          email: normalizedEmail,
+        },
+      });
     } else {
       let changed = false;
 
@@ -248,6 +246,11 @@ const createDefaultUser = async (role, email, password) => {
         changed = true;
       }
 
+      if (user.emailVerified !== true) {
+        user.emailVerified = true;
+        changed = true;
+      }
+
       if (!user.apiToken) {
         user.apiToken = generateApiToken();
         changed = true;
@@ -255,7 +258,17 @@ const createDefaultUser = async (role, email, password) => {
 
       if (changed) {
         await user.save();
+
         console.log(`✅ Existing ${role} account fixed`);
+
+        await SystemLog.create({
+          type: "system",
+          message: `Existing ${role} account fixed`,
+          meta: {
+            role,
+            email: normalizedEmail,
+          },
+        });
       } else {
         console.log(`ℹ️ ${role} already exists`);
       }
@@ -309,11 +322,17 @@ app.get("/api/users", async (req, res) => {
 app.get("/", (req, res) => res.send("🚀 TrustPermit API running"));
 
 app.get("/api", (req, res) =>
-  res.json({ success: true, message: "TrustPermit API is running" })
+  res.json({
+    success: true,
+    message: "TrustPermit API is running",
+  })
 );
 
 app.get("/api/test", (req, res) =>
-  res.json({ success: true, message: "Backend connected successfully" })
+  res.json({
+    success: true,
+    message: "Backend connected successfully",
+  })
 );
 
 // ===================== SERVER =====================

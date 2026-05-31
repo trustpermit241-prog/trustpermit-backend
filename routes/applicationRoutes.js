@@ -32,36 +32,99 @@ const normalizeApplicationPayload = (body, userId, extra = {}) => {
       "",
 
     applicant: {
-      firstName: body.applicant?.firstName || body.firstName || body.givenName || "",
-      middleName: body.applicant?.middleName || body.middleName || "",
-      lastName: body.applicant?.lastName || body.lastName || body.surname || "",
-      suffix: body.applicant?.suffix || body.applicant?.suffixName || body.suffix || "",
-      gender: body.applicant?.gender || body.gender || "",
-      civilStatus: body.applicant?.civilStatus || body.civilStatus || "",
-      nationality: body.applicant?.nationality || body.nationality || "",
+      firstName:
+        body.applicant?.firstName ||
+        body.firstName ||
+        body.givenName ||
+        "",
+
+      middleName:
+        body.applicant?.middleName ||
+        body.middleName ||
+        "",
+
+      lastName:
+        body.applicant?.lastName ||
+        body.lastName ||
+        body.surname ||
+        "",
+
+      suffix:
+        body.applicant?.suffix ||
+        body.applicant?.suffixName ||
+        body.suffix ||
+        "",
+
+      gender:
+        body.applicant?.gender ||
+        body.gender ||
+        "",
+
+      civilStatus:
+        body.applicant?.civilStatus ||
+        body.civilStatus ||
+        "",
+
+      nationality:
+        body.applicant?.nationality ||
+        body.nationality ||
+        "",
+
       contactNumber:
         body.applicant?.contactNumber ||
         body.contactNumber ||
         body.phone ||
         body.mobileNumber ||
         "",
-      email: body.applicant?.email || body.email || "",
+
+      email:
+        body.applicant?.email ||
+        body.email ||
+        "",
     },
 
     address: {
-      province: body.address?.province || body.province || "",
-      city: body.address?.city || body.city || "",
-      barangay: body.address?.barangay || body.barangay || "",
-      subdivision: body.address?.subdivision || body.subdivision || "",
-      street: body.address?.street || body.street || "",
-      building: body.address?.building || body.building || "",
+      province:
+        body.address?.province ||
+        body.province ||
+        "",
+
+      city:
+        body.address?.city ||
+        body.city ||
+        "",
+
+      barangay:
+        body.address?.barangay ||
+        body.barangay ||
+        "",
+
+      subdivision:
+        body.address?.subdivision ||
+        body.subdivision ||
+        "",
+
+      street:
+        body.address?.street ||
+        body.street ||
+        "",
+
+      building:
+        body.address?.building ||
+        body.building ||
+        "",
+
       houseNo:
         body.address?.houseNo ||
         body.address?.houseNumber ||
         body.houseNo ||
         body.houseNumber ||
         "",
-      landmark: body.address?.landmark || body.landmark || "",
+
+      landmark:
+        body.address?.landmark ||
+        body.landmark ||
+        "",
     },
 
     businessDetails: {
@@ -70,19 +133,29 @@ const normalizeApplicationPayload = (body, userId, extra = {}) => {
         body.businessName ||
         body.businessInfo?.businessName ||
         "",
+
       lineOfBusiness:
         body.businessDetails?.lineOfBusiness ||
         body.lineOfBusiness ||
         body.businessLine ||
         "",
+
       businessArea:
         body.businessDetails?.businessArea ||
         body.businessArea ||
         body.area ||
         "",
-      malePersonnel: body.businessDetails?.malePersonnel || body.malePersonnel || 0,
+
+      malePersonnel:
+        body.businessDetails?.malePersonnel ||
+        body.malePersonnel ||
+        0,
+
       femalePersonnel:
-        body.businessDetails?.femalePersonnel || body.femalePersonnel || 0,
+        body.businessDetails?.femalePersonnel ||
+        body.femalePersonnel ||
+        0,
+
       ...body.businessDetails,
     },
 
@@ -92,6 +165,7 @@ const normalizeApplicationPayload = (body, userId, extra = {}) => {
 
     documents: body.documents || body.uploadedDocuments || {},
     attachments: body.attachments || body.files || {},
+
     signature: body.signature || "",
 
     ...extra,
@@ -102,12 +176,15 @@ const normalizeApplicationPayload = (body, userId, extra = {}) => {
 router.post("/", async (req, res) => {
   try {
     const userId = req.user._id || req.user.id;
+
     const payload = normalizeApplicationPayload(req.body, userId);
 
     const application = await Application.create(payload);
 
     const io = req.app.get("io");
-    if (io) io.emit("new-application", application);
+    if (io) {
+      io.emit("new-application", application);
+    }
 
     return res.status(201).json({
       success: true,
@@ -116,6 +193,7 @@ router.post("/", async (req, res) => {
     });
   } catch (error) {
     console.error("Create application error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to submit application: " + error.message,
@@ -135,7 +213,9 @@ router.post("/apply", async (req, res) => {
     const application = await Application.create(payload);
 
     const io = req.app.get("io");
-    if (io) io.emit("new-application", application);
+    if (io) {
+      io.emit("new-application", application);
+    }
 
     return res.status(201).json({
       success: true,
@@ -144,6 +224,7 @@ router.post("/apply", async (req, res) => {
     });
   } catch (error) {
     console.error("Create apply permit error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to create apply permit: " + error.message,
@@ -187,7 +268,9 @@ router.post("/renew", async (req, res) => {
     const renewal = await Application.create(payload);
 
     const io = req.app.get("io");
-    if (io) io.emit("new-application", renewal);
+    if (io) {
+      io.emit("new-application", renewal);
+    }
 
     return res.status(201).json({
       success: true,
@@ -197,6 +280,7 @@ router.post("/renew", async (req, res) => {
     });
   } catch (error) {
     console.error("Create renewal error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to create renewal: " + error.message,
@@ -243,6 +327,7 @@ router.patch("/:id/requirements", async (req, res) => {
     });
   } catch (error) {
     console.error("Update requirements error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to update requirements: " + error.message,
@@ -253,7 +338,7 @@ router.patch("/:id/requirements", async (req, res) => {
 // ===================== UPDATE APPLICATION STATUS =====================
 router.patch("/:id/status", async (req, res) => {
   try {
-    const { status, documentStatuses } = req.body;
+    const { status } = req.body;
 
     if (!status) {
       return res.status(400).json({
@@ -262,7 +347,7 @@ router.patch("/:id/status", async (req, res) => {
       });
     }
 
-    const allowedStatuses = ["Pending", "Approved", "Rejected", "Completed"];
+    const allowedStatuses = ["Pending", "Approved", "Rejected"];
 
     if (!allowedStatuses.includes(status)) {
       return res.status(400).json({
@@ -271,21 +356,13 @@ router.patch("/:id/status", async (req, res) => {
       });
     }
 
-    const documentDbStatus = status === "Completed" ? "Approved" : status;
-
-    const updateFields = {
-      status,
-      updatedAt: new Date(),
-    };
-
-    if (documentStatuses && typeof documentStatuses === "object") {
-      updateFields.documentStatuses = documentStatuses;
-    }
-
     const application = await Application.findByIdAndUpdate(
       req.params.id,
       {
-        $set: updateFields,
+        $set: {
+          status,
+          updatedAt: new Date(),
+        },
       },
       { new: true }
     )
@@ -303,24 +380,23 @@ router.patch("/:id/status", async (req, res) => {
       { applicationId: application._id },
       {
         $set: {
-          status: documentDbStatus,
+          status,
         },
       }
     );
 
     const io = req.app.get("io");
-
     if (io) {
       io.emit("application-status-updated", { application });
       io.emit("uploaded-document-status-updated", {
         applicationId: application._id,
-        status: documentDbStatus,
+        status,
       });
     }
 
     return res.status(200).json({
       success: true,
-      message: "Application status updated successfully",
+      message: "Application and uploaded document status updated successfully",
       application,
     });
   } catch (error) {
@@ -360,6 +436,7 @@ router.get("/", async (req, res) => {
     });
   } catch (error) {
     console.error("Fetch applications error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to fetch applications: " + error.message,
@@ -387,6 +464,7 @@ router.get("/my", async (req, res) => {
     });
   } catch (error) {
     console.error("Fetch my applications error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to fetch my applications: " + error.message,
@@ -420,7 +498,9 @@ router.get("/:id", async (req, res) => {
     }
 
     const ownerId = String(application.userId?._id || application.userId || "");
-    const citizenId = String(application.citizenId?._id || application.citizenId || "");
+    const citizenId = String(
+      application.citizenId?._id || application.citizenId || ""
+    );
 
     if (
       role !== "admin" &&
@@ -440,6 +520,7 @@ router.get("/:id", async (req, res) => {
     });
   } catch (error) {
     console.error("Fetch single application error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to fetch application: " + error.message,

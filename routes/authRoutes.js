@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const SystemLog = require('../models/SystemLog');
 
 const router = express.Router();
 
@@ -207,6 +208,16 @@ router.post('/login', async (req, res) => {
     }
 
     const token = generateJwtToken(user);
+
+    await SystemLog.create({
+      type: 'user',
+      message: `${user.fullName || user.email} logged in`,
+      meta: {
+        userId: user._id,
+        email: user.email,
+        role: user.role,
+      },
+    });
 
     return res.status(200).json({
       success: true,

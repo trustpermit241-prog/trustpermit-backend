@@ -40,6 +40,7 @@ function generateApiToken() {
 const allowedOrigins = [
   "https://trustpermit.com",
   "https://www.trustpermit.com",
+  "https://trustpermit-webclient.vercel.app",
   "https://trustpermit-backend.onrender.com",
   "http://localhost:3000",
   "http://localhost:3001",

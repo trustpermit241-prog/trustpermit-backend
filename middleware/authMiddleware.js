@@ -16,52 +16,31 @@ module.exports = async (req, res, next) => {
 
     const token = authHeader.split(" ")[1];
 
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
 
-      const user = await User.findById(decoded.id || decoded._id).select(
-        "-passwordHash -salt"
-      );
+    const user = await User.findById(decoded.id || decoded._id).select(
+      "-passwordHash -salt"
+    );
 
-      if (!user) {
-        return res.status(401).json({
-          success: false,
-          message: "User not found. Please login again.",
-        });
-      }
-
-      req.user = {
-        id: user._id,
-        _id: user._id,
-        role: user.role,
-        email: user.email,
-        fullName: user.fullName,
-      };
-
-      return next();
-    } catch (jwtError) {
-      const user = await User.findOne({ apiToken: token }).select(
-        "-passwordHash -salt"
-      );
-
-      if (!user) {
-        return res.status(401).json({
-          success: false,
-          message: "Invalid token. Please login again.",
-        });
-      }
-
-      req.user = {
-        id: user._id,
-        _id: user._id,
-        role: user.role,
-        email: user.email,
-        fullName: user.fullName,
-      };
-
-      return next();
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not found. Please login again.",
+      });
     }
+
+    req.user = {
+      id: user._id,
+      _id: user._id,
+      role: user.role,
+      email: user.email,
+      fullName: user.fullName,
+    };
+
+    return next();
   } catch (err) {
+    console.error("JWT AUTH ERROR:", err.message);
+
     return res.status(401).json({
       success: false,
       message: "Invalid token. Please login again.",

@@ -32,99 +32,36 @@ const normalizeApplicationPayload = (body, userId, extra = {}) => {
       "",
 
     applicant: {
-      firstName:
-        body.applicant?.firstName ||
-        body.firstName ||
-        body.givenName ||
-        "",
-
-      middleName:
-        body.applicant?.middleName ||
-        body.middleName ||
-        "",
-
-      lastName:
-        body.applicant?.lastName ||
-        body.lastName ||
-        body.surname ||
-        "",
-
-      suffix:
-        body.applicant?.suffix ||
-        body.applicant?.suffixName ||
-        body.suffix ||
-        "",
-
-      gender:
-        body.applicant?.gender ||
-        body.gender ||
-        "",
-
-      civilStatus:
-        body.applicant?.civilStatus ||
-        body.civilStatus ||
-        "",
-
-      nationality:
-        body.applicant?.nationality ||
-        body.nationality ||
-        "",
-
+      firstName: body.applicant?.firstName || body.firstName || body.givenName || "",
+      middleName: body.applicant?.middleName || body.middleName || "",
+      lastName: body.applicant?.lastName || body.lastName || body.surname || "",
+      suffix: body.applicant?.suffix || body.applicant?.suffixName || body.suffix || "",
+      gender: body.applicant?.gender || body.gender || "",
+      civilStatus: body.applicant?.civilStatus || body.civilStatus || "",
+      nationality: body.applicant?.nationality || body.nationality || "",
       contactNumber:
         body.applicant?.contactNumber ||
         body.contactNumber ||
         body.phone ||
         body.mobileNumber ||
         "",
-
-      email:
-        body.applicant?.email ||
-        body.email ||
-        "",
+      email: body.applicant?.email || body.email || "",
     },
 
     address: {
-      province:
-        body.address?.province ||
-        body.province ||
-        "",
-
-      city:
-        body.address?.city ||
-        body.city ||
-        "",
-
-      barangay:
-        body.address?.barangay ||
-        body.barangay ||
-        "",
-
-      subdivision:
-        body.address?.subdivision ||
-        body.subdivision ||
-        "",
-
-      street:
-        body.address?.street ||
-        body.street ||
-        "",
-
-      building:
-        body.address?.building ||
-        body.building ||
-        "",
-
+      province: body.address?.province || body.province || "",
+      city: body.address?.city || body.city || "",
+      barangay: body.address?.barangay || body.barangay || "",
+      subdivision: body.address?.subdivision || body.subdivision || "",
+      street: body.address?.street || body.street || "",
+      building: body.address?.building || body.building || "",
       houseNo:
         body.address?.houseNo ||
         body.address?.houseNumber ||
         body.houseNo ||
         body.houseNumber ||
         "",
-
-      landmark:
-        body.address?.landmark ||
-        body.landmark ||
-        "",
+      landmark: body.address?.landmark || body.landmark || "",
     },
 
     businessDetails: {
@@ -133,29 +70,19 @@ const normalizeApplicationPayload = (body, userId, extra = {}) => {
         body.businessName ||
         body.businessInfo?.businessName ||
         "",
-
       lineOfBusiness:
         body.businessDetails?.lineOfBusiness ||
         body.lineOfBusiness ||
         body.businessLine ||
         "",
-
       businessArea:
         body.businessDetails?.businessArea ||
         body.businessArea ||
         body.area ||
         "",
-
-      malePersonnel:
-        body.businessDetails?.malePersonnel ||
-        body.malePersonnel ||
-        0,
-
+      malePersonnel: body.businessDetails?.malePersonnel || body.malePersonnel || 0,
       femalePersonnel:
-        body.businessDetails?.femalePersonnel ||
-        body.femalePersonnel ||
-        0,
-
+        body.businessDetails?.femalePersonnel || body.femalePersonnel || 0,
       ...body.businessDetails,
     },
 
@@ -165,7 +92,6 @@ const normalizeApplicationPayload = (body, userId, extra = {}) => {
 
     documents: body.documents || body.uploadedDocuments || {},
     attachments: body.attachments || body.files || {},
-
     signature: body.signature || "",
 
     ...extra,
@@ -176,7 +102,6 @@ const normalizeApplicationPayload = (body, userId, extra = {}) => {
 router.post("/", async (req, res) => {
   try {
     const userId = req.user._id || req.user.id;
-
     const payload = normalizeApplicationPayload(req.body, userId);
 
     const application = await Application.create(payload);
@@ -338,7 +263,7 @@ router.patch("/:id/requirements", async (req, res) => {
 // ===================== UPDATE APPLICATION STATUS =====================
 router.patch("/:id/status", async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, documentStatuses } = req.body;
 
     if (!status) {
       return res.status(400).json({
@@ -347,7 +272,15 @@ router.patch("/:id/status", async (req, res) => {
       });
     }
 
-    const allowedStatuses = ["Pending", "Approved", "Rejected"];
+    const allowedStatuses = [
+      "Pending",
+      "Approved",
+      "Rejected",
+      "Completed",
+      "Inspection",
+      "For Payment",
+      "Released",
+    ];
 
     if (!allowedStatuses.includes(status)) {
       return res.status(400).json({
@@ -356,13 +289,21 @@ router.patch("/:id/status", async (req, res) => {
       });
     }
 
+    const documentDbStatus = status === "Completed" ? "Approved" : status;
+
+    const updateFields = {
+      status,
+      updatedAt: new Date(),
+    };
+
+    if (documentStatuses && typeof documentStatuses === "object") {
+      updateFields.documentStatuses = documentStatuses;
+    }
+
     const application = await Application.findByIdAndUpdate(
       req.params.id,
       {
-        $set: {
-          status,
-          updatedAt: new Date(),
-        },
+        $set: updateFields,
       },
       { new: true }
     )
@@ -376,27 +317,30 @@ router.patch("/:id/status", async (req, res) => {
       });
     }
 
-    await UploadedDocument.updateMany(
-      { applicationId: application._id },
-      {
-        $set: {
-          status,
-        },
-      }
-    );
+    if (["Pending", "Approved", "Rejected", "Completed"].includes(status)) {
+      await UploadedDocument.updateMany(
+        { applicationId: application._id },
+        {
+          $set: {
+            status: documentDbStatus,
+          },
+        }
+      );
+    }
 
     const io = req.app.get("io");
+
     if (io) {
       io.emit("application-status-updated", { application });
       io.emit("uploaded-document-status-updated", {
         applicationId: application._id,
-        status,
+        status: documentDbStatus,
       });
     }
 
     return res.status(200).json({
       success: true,
-      message: "Application and uploaded document status updated successfully",
+      message: "Application status updated successfully",
       application,
     });
   } catch (error) {
@@ -498,9 +442,7 @@ router.get("/:id", async (req, res) => {
     }
 
     const ownerId = String(application.userId?._id || application.userId || "");
-    const citizenId = String(
-      application.citizenId?._id || application.citizenId || ""
-    );
+    const citizenId = String(application.citizenId?._id || application.citizenId || "");
 
     if (
       role !== "admin" &&

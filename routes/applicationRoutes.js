@@ -15,7 +15,6 @@ router.post("/", async (req, res) => {
     const payload = {
       ...req.body,
       userId,
-      citizenId: req.body.citizenId || userId,
     };
 
     const application = await Application.create(payload);
@@ -44,7 +43,6 @@ router.post("/apply", async (req, res) => {
       ...req.body,
       applicationType: req.body.applicationType || "New Application",
       userId,
-      citizenId: req.body.citizenId || userId,
     };
 
     const application = await Application.create(payload);
@@ -97,7 +95,6 @@ router.post("/renew", async (req, res) => {
       applicationType: "Renewal",
       previousApplicationId,
       userId,
-      citizenId: req.body.citizenId || userId,
     };
 
     const renewal = await Application.create(payload);
@@ -222,14 +219,11 @@ router.get("/", async (req, res) => {
     let query = {};
 
     if (role === "citizen" || role === "user") {
-      query = {
-        $or: [{ userId }, { citizenId: userId }],
-      };
+      query = { userId };
     }
 
     const applications = await Application.find(query)
       .populate("userId", "fullName email role")
-      .populate("citizenId", "fullName email role")
       .sort({ createdAt: -1 });
 
     return res.status(200).json({
@@ -252,11 +246,8 @@ router.get("/my", async (req, res) => {
   try {
     const userId = req.user._id || req.user.id;
 
-    const applications = await Application.find({
-      $or: [{ userId }, { citizenId: userId }],
-    })
+    const applications = await Application.find({ userId })
       .populate("userId", "fullName email role")
-      .populate("citizenId", "fullName email role")
       .sort({ createdAt: -1 });
 
     return res.status(200).json({
@@ -287,9 +278,10 @@ router.get("/:id", async (req, res) => {
       });
     }
 
-    const application = await Application.findById(req.params.id)
-      .populate("userId", "fullName email role")
-      .populate("citizenId", "fullName email role");
+    const application = await Application.findById(req.params.id).populate(
+      "userId",
+      "fullName email role"
+    );
 
     if (!application) {
       return res.status(404).json({
@@ -299,14 +291,8 @@ router.get("/:id", async (req, res) => {
     }
 
     const ownerId = String(application.userId?._id || application.userId || "");
-    const citizenId = String(application.citizenId?._id || application.citizenId || "");
 
-    if (
-      role !== "admin" &&
-      role !== "staff" &&
-      ownerId !== userId &&
-      citizenId !== userId
-    ) {
+    if (role !== "admin" && role !== "staff" && ownerId !== userId) {
       return res.status(403).json({
         success: false,
         message: "You don't have permission to access this application",

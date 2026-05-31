@@ -1,139 +1,73 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const Application = require("../models/Application");
-const User = require("../models/User");
+const authMiddleware = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-async function authorize(req, res, next) {
-  try {
-    const header = req.headers.authorization || '';
-    
-    if (!header.startsWith('Bearer ')) {
-      console.warn('⚠️  No Bearer token provided');
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Missing authorization token. Please login first.',
-      });
-    }
+router.use(authMiddleware);
 
-    const token = header.slice(7).trim();
-    if (!token) {
-      console.warn('⚠️  Empty token provided');
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid authorization token.',
-      });
-    }
-
-    if (mongoose.connection.readyState !== 1) {
-      console.error('❌ Authorization blocked: MongoDB not connected.');
-      return res.status(503).json({
-        success: false,
-        message: 'Database temporarily unavailable. Please try again later.',
-      });
-    }
-
-    const user = await User.findOne({ apiToken: token });
-    if (!user) {
-      console.warn('⚠️  Token not found for:', token.substring(0, 10) + '...');
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid token. Please login again.',
-      });
-    }
-
-    req.user = user;
-    next();
-  } catch (error) {
-    console.error('❌ Authorization error:', error.message);
-    return res.status(500).json({
-      success: false,
-      message: 'Authentication error: ' + error.message,
-    });
-  }
-}
-
-router.use(authorize);
-
-// Generic create endpoint (keeps backwards compatibility)
+// ===================== CREATE APPLICATION =====================
 router.post("/", async (req, res) => {
   try {
-    console.log('📝 Creating application for user:', req.user.email);
-    console.log('📋 Payload:', JSON.stringify(req.body, null, 2));
+    const userId = req.user._id || req.user.id;
 
-    // Add user reference
     const payload = {
       ...req.body,
-      userId: req.user._id,
+      userId,
+      citizenId: req.body.citizenId || userId,
     };
 
     const application = await Application.create(payload);
 
-    console.log('✅ Application created:', application._id);
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Application submitted successfully",
       application,
     });
   } catch (error) {
-    console.error('❌ Error creating application:', error.message);
-    console.error('❌ Error details:', error);
-    
-    res.status(500).json({
+    console.error("Create application error:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Failed to submit application: " + error.message,
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 });
 
-// Create a new Apply permit application
+// ===================== CREATE APPLY PERMIT =====================
 router.post("/apply", async (req, res) => {
   try {
-    console.log('📝 Creating Apply permit for user:', req.user.email);
+    const userId = req.user._id || req.user.id;
 
     const payload = {
       ...req.body,
-      applicationType: "Apply",
-      userId: req.user._id,
+      applicationType: req.body.applicationType || "New Application",
+      userId,
+      citizenId: req.body.citizenId || userId,
     };
-
-    // Basic validation
-    if (!payload.applicant || !payload.contact) {
-      console.warn('⚠️  Missing required fields:', { 
-        hasApplicant: !!payload.applicant, 
-        hasContact: !!payload.contact 
-      });
-      return res.status(400).json({
-        success: false,
-        message: "Missing applicant or contact information",
-      });
-    }
 
     const application = await Application.create(payload);
 
-    console.log('✅ Apply permit created:', application._id);
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Apply permit submitted",
       application,
     });
   } catch (error) {
-    console.error('❌ Error creating Apply permit:', error.message);
-    res.status(500).json({ 
-      success: false, 
+    console.error("Create apply permit error:", error);
+
+    return res.status(500).json({
+      success: false,
       message: "Failed to create apply permit: " + error.message,
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 });
 
-// Create a renew permit application linked to an existing application
+// ===================== CREATE RENEWAL =====================
 router.post("/renew", async (req, res) => {
   try {
-    console.log('📝 Creating Renew permit for user:', req.user.email);
-
+    const userId = req.user._id || req.user.id;
     const { previousApplicationId } = req.body;
 
     if (!previousApplicationId) {
@@ -143,7 +77,6 @@ router.post("/renew", async (req, res) => {
       });
     }
 
-    // find previous application
     const previous = await Application.findById(previousApplicationId);
 
     if (!previous) {
@@ -153,46 +86,43 @@ router.post("/renew", async (req, res) => {
       });
     }
 
-    // Merge some fields from previous application as defaults for renewal
-    const defaults = {
-      applicant: previous.applicant,
-      contact: previous.contact,
-      address: previous.address,
-      businessInfo: previous.businessInfo,
-    };
-
     const payload = {
-      ...defaults,
       ...req.body,
-      applicationType: "Renew",
+      applicant: req.body.applicant || previous.applicant,
+      contact: req.body.contact || previous.contact,
+      address: req.body.address || previous.address,
+      businessInfo: req.body.businessInfo || previous.businessInfo,
+      businessDetails: req.body.businessDetails || previous.businessDetails,
+      businessName: req.body.businessName || previous.businessName,
+      applicationType: "Renewal",
       previousApplicationId,
-      userId: req.user._id,
+      userId,
+      citizenId: req.body.citizenId || userId,
     };
 
     const renewal = await Application.create(payload);
 
-    console.log('✅ Renewal application created:', renewal._id);
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Renewal application submitted",
+      application: renewal,
       renewal,
     });
   } catch (error) {
-    console.error('❌ Error creating renewal:', error.message);
-    res.status(500).json({ 
-      success: false, 
+    console.error("Create renewal error:", error);
+
+    return res.status(500).json({
+      success: false,
       message: "Failed to create renewal: " + error.message,
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 });
 
-// Update requirements/documents for a submitted application
+// ===================== UPDATE REQUIREMENTS =====================
 router.patch("/:id/requirements", async (req, res) => {
   try {
-    console.log('🔄 Updating requirements for application:', req.params.id);
-
     const requirements = req.body?.requirements || {};
+
     if (typeof requirements !== "object") {
       return res.status(400).json({
         success: false,
@@ -204,96 +134,195 @@ router.patch("/:id/requirements", async (req, res) => {
       req.params.id,
       {
         $set: {
-          requirements: {
-            ...(req.body.requirements || {}),
-          },
+          requirements,
           updatedAt: new Date(),
         },
       },
-      { new: true },
+      { new: true }
     );
 
     if (!application) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Application not found." 
+      return res.status(404).json({
+        success: false,
+        message: "Application not found.",
       });
     }
 
-    console.log('✅ Requirements updated for:', req.params.id);
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Requirements updated successfully",
       application,
     });
   } catch (error) {
-    console.error('❌ Error updating requirements:', error.message);
-    res.status(500).json({ 
-      success: false, 
+    console.error("Update requirements error:", error);
+
+    return res.status(500).json({
+      success: false,
       message: "Failed to update requirements: " + error.message,
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 });
 
-// Get all applications for the logged-in user
+// ===================== UPDATE APPLICATION STATUS =====================
+router.patch("/:id/status", async (req, res) => {
+  try {
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: "Status is required.",
+      });
+    }
+
+    const application = await Application.findByIdAndUpdate(
+      req.params.id,
+      {
+        $set: {
+          status,
+          updatedAt: new Date(),
+        },
+      },
+      { new: true }
+    );
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: "Application not found.",
+      });
+    }
+
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("application-status-updated", { application });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Application status updated successfully",
+      application,
+    });
+  } catch (error) {
+    console.error("Update application status error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update application status: " + error.message,
+    });
+  }
+});
+
+// ===================== GET ALL APPLICATIONS =====================
 router.get("/", async (req, res) => {
   try {
-    console.log('📊 Fetching applications for user:', req.user.email);
+    const role = String(req.user.role || "").toLowerCase();
+    const userId = req.user._id || req.user.id;
 
-    const applications = await Application.find({ userId: req.user._id }).sort({ 
-      createdAt: -1 
-    });
+    let query = {};
 
-    console.log('✅ Found', applications.length, 'applications');
-    res.json({ 
-      success: true, 
+    if (role === "citizen" || role === "user") {
+      query = {
+        $or: [{ userId }, { citizenId: userId }],
+      };
+    }
+
+    const applications = await Application.find(query)
+      .populate("userId", "fullName email role")
+      .populate("citizenId", "fullName email role")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
       applications,
       count: applications.length,
     });
   } catch (error) {
-    console.error('❌ Error fetching applications:', error.message);
-    res.status(500).json({ 
-      success: false, 
+    console.error("Fetch applications error:", error);
+
+    return res.status(500).json({
+      success: false,
       message: "Failed to fetch applications: " + error.message,
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 });
 
-// Get single application by id
+// ===================== GET MY APPLICATIONS =====================
+router.get("/my", async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id;
+
+    const applications = await Application.find({
+      $or: [{ userId }, { citizenId: userId }],
+    })
+      .populate("userId", "fullName email role")
+      .populate("citizenId", "fullName email role")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      applications,
+      count: applications.length,
+    });
+  } catch (error) {
+    console.error("Fetch my applications error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch my applications: " + error.message,
+    });
+  }
+});
+
+// ===================== GET SINGLE APPLICATION =====================
 router.get("/:id", async (req, res) => {
   try {
-    console.log('🔍 Fetching application:', req.params.id);
+    const role = String(req.user.role || "").toLowerCase();
+    const userId = String(req.user._id || req.user.id);
 
-    const application = await Application.findById(req.params.id);
-
-    if (!application) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Application not found" 
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid application ID.",
       });
     }
 
-    // Check if user owns this application
-    if (application.userId && application.userId.toString() !== req.user._id.toString()) {
+    const application = await Application.findById(req.params.id)
+      .populate("userId", "fullName email role")
+      .populate("citizenId", "fullName email role");
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: "Application not found",
+      });
+    }
+
+    const ownerId = String(application.userId?._id || application.userId || "");
+    const citizenId = String(application.citizenId?._id || application.citizenId || "");
+
+    if (
+      role !== "admin" &&
+      role !== "staff" &&
+      ownerId !== userId &&
+      citizenId !== userId
+    ) {
       return res.status(403).json({
         success: false,
         message: "You don't have permission to access this application",
       });
     }
 
-    console.log('✅ Application found:', req.params.id);
-    res.json({ 
-      success: true, 
-      application 
+    return res.status(200).json({
+      success: true,
+      application,
     });
   } catch (error) {
-    console.error('❌ Error fetching application:', error.message);
-    res.status(500).json({ 
-      success: false, 
+    console.error("Fetch single application error:", error);
+
+    return res.status(500).json({
+      success: false,
       message: "Failed to fetch application: " + error.message,
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 });

@@ -113,6 +113,11 @@ const applicationSchema = new mongoose.Schema(
       default: {},
     },
 
+    documentStatuses: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
+
     signature: String,
 
     requirements: {
@@ -134,6 +139,15 @@ const applicationSchema = new mongoose.Schema(
 
     status: {
       type: String,
+      enum: [
+        "Pending",
+        "Approved",
+        "Rejected",
+        "Completed",
+        "Inspection",
+        "For Payment",
+        "Released",
+      ],
       default: "Pending",
     },
   },

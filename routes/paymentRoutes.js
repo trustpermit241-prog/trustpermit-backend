@@ -1,10 +1,11 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const Payment = require("../models/Payment");
 const Application = require("../models/Application");
 
 const router = express.Router();
 
-// Create a new payment record
+// ===================== CREATE PAYMENT =====================
 router.post("/", async (req, res) => {
   try {
     const {
@@ -38,34 +39,42 @@ router.post("/", async (req, res) => {
       });
     }
 
+    const selectedMethod = paymentMethod || method || "";
+
     const payment = await Payment.create({
-      applicationId: applicationId || null,
-      userId: userId || null,
+      applicationId:
+        applicationId && mongoose.Types.ObjectId.isValid(applicationId)
+          ? applicationId
+          : null,
+      userId:
+        userId && mongoose.Types.ObjectId.isValid(userId)
+          ? userId
+          : null,
       name,
       email,
       amount: parsedAmount,
-      paymentMethod: paymentMethod || method || "unknown",
-      method: paymentMethod || method || "unknown",
+      paymentMethod: selectedMethod,
+      method: selectedMethod,
       cardLast4,
       status: "paid",
       permitReleased: false,
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Payment recorded",
       payment,
     });
   } catch (error) {
     console.error("Create payment error:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
   }
 });
 
-// List payments
+// ===================== LIST PAYMENTS =====================
 router.get("/", async (req, res) => {
   try {
     const payments = await Payment.find()
@@ -73,20 +82,20 @@ router.get("/", async (req, res) => {
       .populate("userId", "fullName email role")
       .sort({ createdAt: -1 });
 
-    res.json({
+    return res.json({
       success: true,
       payments,
     });
   } catch (error) {
     console.error("Fetch payments error:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
   }
 });
 
-// Approve payment and release permit
+// ===================== APPROVE PAYMENT + RELEASE PERMIT =====================
 router.put("/:id/approve-release", async (req, res) => {
   try {
     const payment = await Payment.findById(req.params.id);
@@ -104,39 +113,37 @@ router.put("/:id/approve-release", async (req, res) => {
 
     let application = null;
 
-    if (payment.applicationId) {
+    if (payment.applicationId && mongoose.Types.ObjectId.isValid(payment.applicationId)) {
       application = await Application.findByIdAndUpdate(
         payment.applicationId,
         {
           $set: {
             status: "Released",
-            paymentStatus: "approved",
-            permitReleased: true,
-            permitReleasedAt: new Date(),
           },
         },
         { new: true }
       );
     }
 
-    const verificationUrl = payment.applicationId
+    payment.verificationUrl = payment.applicationId
       ? `https://trustpermit-webclient.vercel.app/verify/${payment.applicationId}`
       : "";
-
-    payment.verificationUrl = verificationUrl;
 
     await payment.save();
 
     const io = req.app.get("io");
+
     if (io) {
       io.emit("payment-updated", {
         payment,
         application,
       });
 
-      io.emit("application-status-updated", {
-        application,
-      });
+      if (application) {
+        io.emit("application-status-updated", {
+          application,
+        });
+      }
     }
 
     return res.status(200).json({
@@ -147,7 +154,6 @@ router.put("/:id/approve-release", async (req, res) => {
     });
   } catch (error) {
     console.error("Approve release payment error:", error);
-
     return res.status(500).json({
       success: false,
       message: error.message,
@@ -155,7 +161,7 @@ router.put("/:id/approve-release", async (req, res) => {
   }
 });
 
-// Get single payment
+// ===================== GET SINGLE PAYMENT =====================
 router.get("/:id", async (req, res) => {
   try {
     const payment = await Payment.findById(req.params.id)
@@ -165,17 +171,17 @@ router.get("/:id", async (req, res) => {
     if (!payment) {
       return res.status(404).json({
         success: false,
-        message: "Not found",
+        message: "Payment not found",
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       payment,
     });
   } catch (error) {
     console.error("Fetch single payment error:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });

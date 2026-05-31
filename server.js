@@ -6,6 +6,7 @@ const crypto = require("crypto");
 const http = require("http");
 const { Server } = require("socket.io");
 const path = require("path");
+const fs = require("fs");
 require("dotenv").config();
 
 // ===================== ROUTES =====================
@@ -27,6 +28,18 @@ const SystemLog = require("./models/SystemLog");
 
 // ===================== EXPRESS APP =====================
 const app = express();
+
+// ===================== ENSURE UPLOAD FOLDERS EXIST =====================
+const uploadsDir = path.join(__dirname, "uploads");
+const documentsDir = path.join(__dirname, "uploads", "documents");
+
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+if (!fs.existsSync(documentsDir)) {
+  fs.mkdirSync(documentsDir, { recursive: true });
+}
 
 // ===================== PASSWORD HELPERS =====================
 function hashPassword(password, salt) {
@@ -71,11 +84,31 @@ app.use(
 );
 
 // ===================== BODY PARSER =====================
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // ===================== STATIC FILES =====================
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/uploads", express.static(uploadsDir));
+app.use("/uploads/documents", express.static(documentsDir));
+
+// Debug route to check if file exists
+app.get("/api/uploads/check/:filename", (req, res) => {
+  const filePath = path.join(documentsDir, req.params.filename);
+
+  if (fs.existsSync(filePath)) {
+    return res.json({
+      success: true,
+      exists: true,
+      path: `/uploads/documents/${req.params.filename}`,
+    });
+  }
+
+  return res.status(404).json({
+    success: false,
+    exists: false,
+    message: "File not found on server. It may have been removed after redeploy/restart.",
+  });
+});
 
 // ===================== SERVER + SOCKET.IO =====================
 const server = http.createServer(app);

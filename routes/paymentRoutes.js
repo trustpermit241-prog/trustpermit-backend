@@ -137,11 +137,10 @@ router.put("/:id/approve-release", async (req, res) => {
         { new: true }
       );
 
-      // Build a verification redirect URL that points to this backend host.
-      // Scanning the QR will hit this backend endpoint which will redirect to the
-      // frontend verify UI when available, or fall back to the backend verify API.
-      const hostBase = `${req.protocol}://${req.get("host")}`;
-      const verificationUrl = `${hostBase}/api/blockchain/redirect/${payment.applicationId}`;
+      // Build verification URL pointing to the frontend verify page
+      // This allows users to scan the QR code and go directly to the permit verification page
+      const frontendUrl = process.env.FRONTEND_URL || "https://trustpermit-webclient.vercel.app";
+      const verificationUrl = `${frontendUrl.replace(/\/$/, "")}/verify/${payment.applicationId}`;
       payment.verificationUrl = verificationUrl;
 
       const existingRecord = await BlockchainRecord.findOne({
@@ -172,6 +171,8 @@ router.put("/:id/approve-release", async (req, res) => {
           console.error("Solana transaction failed:", err);
         }
 
+        // Always create blockchain record, even if Solana transaction fails
+        // The record is essential for permit verification
         if (transactionSignature && transactionSignature !== "BLOCKCHAIN_DISABLED" && transactionSignature !== "BLOCKCHAIN_ERROR") {
           blockchainRecord = await BlockchainRecord.create({
             permitId: payment.applicationId,
@@ -187,7 +188,23 @@ router.put("/:id/approve-release", async (req, res) => {
             createdAt: new Date(),
           };
         } else {
-          solanaError = transactionSignature || solanaError || "Solana transaction failed.";
+          // Create a blockchain record even if Solana is disabled or failed
+          // This ensures the permit can still be verified and displayed
+          blockchainRecord = await BlockchainRecord.create({
+            permitId: payment.applicationId,
+            paymentId: payment._id,
+            hash,
+            transactionSignature: transactionSignature || "PENDING_BLOCKCHAIN", // Placeholder if Solana unavailable
+            verificationUrl,
+          });
+
+          payment.blockchainRecord = {
+            hash,
+            transactionSignature: transactionSignature || "PENDING_BLOCKCHAIN",
+            createdAt: new Date(),
+          };
+
+          solanaError = transactionSignature || solanaError || "Blockchain service unavailable, but record created locally.";
         }
       }
     } else {

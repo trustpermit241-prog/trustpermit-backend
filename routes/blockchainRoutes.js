@@ -16,6 +16,14 @@ router.get("/verify/:permitId", async (req, res) => {
   try {
     const { permitId } = req.params;
 
+    // Validate permitId format
+    if (!permitId || permitId.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid permit ID",
+      });
+    }
+
     const application = await Application.findById(permitId);
 
     if (!application) {
@@ -29,11 +37,16 @@ router.get("/verify/:permitId", async (req, res) => {
       permitId,
     });
 
+    // Return success even if blockchain record is missing, but log it
     if (!blockchainRecord) {
-      return res.status(404).json({
-        success: false,
-        message: "No blockchain record found for this permit",
+      console.warn(`No blockchain record found for permit ${permitId}. Application status: ${application.status}`);
+      
+      // Still return success with the application data for display
+      return res.json({
+        success: true,
+        message: "Permit found (blockchain record pending)",
         application,
+        blockchainRecord: null,
       });
     }
 

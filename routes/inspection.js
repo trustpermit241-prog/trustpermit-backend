@@ -133,6 +133,45 @@ router.post("/schedule", protect, async (req, res) => {
   }
 });
 
+// ================= GET INSPECTIONS FOR LOGGED-IN USER =================
+router.get("/my", protect, async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id;
+    const tokenEmail = (req.user.email || "").trim().toLowerCase();
+
+    console.log("🔍 User requesting inspections. User ID:", userId, "Email:", req.user.email);
+
+    if (!userId && !tokenEmail) {
+      return res.status(400).json({
+        message: "User ID not found in token. Token data: " + JSON.stringify(req.user),
+      });
+    }
+
+    const user = userId
+      ? await User.findById(userId).select("_id email")
+      : await User.findOne({ email: tokenEmail }).select("_id email");
+
+    if (!user) {
+      return res.status(404).json({ message: "User account not found for this token." });
+    }
+
+    const inspections = await Inspection.find({
+      citizenId: user._id,
+    })
+      .sort({ date: 1 })
+      .populate({ path: "scheduledBy", select: "fullName email" });
+
+    console.log(`✅ Found ${inspections.length} inspections for user ${user._id}`);
+    res.json(inspections);
+  } catch (err) {
+    console.error("Failed to fetch user inspections:", err);
+    res.status(500).json({
+      message: "Failed to fetch user inspections",
+      error: err.message,
+    });
+  }
+});
+
 // ================= GET SINGLE INSPECTION BY ID =================
 router.get("/:id", protect, async (req, res) => {
   try {
@@ -198,47 +237,6 @@ router.get("/", protect, async (req, res) => {
   } catch (err) {
     res.status(500).json({
       message: "Failed to fetch inspections",
-      error: err.message,
-    });
-  }
-});
-
-// ================= GET INSPECTIONS FOR LOGGED-IN USER =================
-router.get("/my", protect, async (req, res) => {
-  try {
-    // Handle both _id and id (for backward compatibility)
-    const userId = req.user._id || req.user.id;
-    const tokenEmail = (req.user.email || "").trim().toLowerCase();
-    
-    console.log("🔍 User requesting inspections. User ID:", userId, "Email:", req.user.email); // DEBUG
-    
-    if (!userId && !tokenEmail) {
-      return res.status(400).json({
-        message: "User ID not found in token. Token data: " + JSON.stringify(req.user)
-      });
-    }
-
-    // Resolve the authoritative user record. This avoids mismatches if token payload shape changed.
-    const user = userId
-      ? await User.findById(userId).select("_id email")
-      : await User.findOne({ email: tokenEmail }).select("_id email");
-
-    if (!user) {
-      return res.status(404).json({ message: "User account not found for this token." });
-    }
-    
-    const inspections = await Inspection.find({
-      citizenId: user._id, // only for logged-in user
-    })
-      .sort({ date: 1 }) // sort by scheduled date
-      .populate({ path: "scheduledBy", select: "fullName email" }); // optional: staff info
-
-    console.log(`✅ Found ${inspections.length} inspections for user ${user._id}`); // DEBUG
-    res.json(inspections);
-  } catch (err) {
-    console.error("Failed to fetch user inspections:", err);
-    res.status(500).json({
-      message: "Failed to fetch user inspections",
       error: err.message,
     });
   }

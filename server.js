@@ -57,14 +57,24 @@ const allowedOrigins = [
   "https://trustpermit-webclient.vercel.app",
   "https://trustpermit-backend.onrender.com",
   "http://localhost:3000",
+  "http://localhost:3001",
   "http://localhost:5173",
+  "http://127.0.0.1:3000",
+  "http://127.0.0.1:3001",
+  "http://127.0.0.1:5173",
 ];
+
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  return /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+};
 
 // ===================== CORS =====================
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (isAllowedOrigin(origin)) {
         callback(null, true);
       } else {
         console.log("❌ Blocked by CORS:", origin);
@@ -116,7 +126,13 @@ const server = http.createServer(app);
 const io = new Server(server, {
   path: "/socket.io",
   cors: {
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      if (isAllowedOrigin(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by Socket.IO CORS"));
+      }
+    },
     credentials: true,
   },
   transports: ["websocket", "polling"],
@@ -325,6 +341,7 @@ mongoose
   });
 
 // ===================== ROUTES =====================
+// API routes
 app.use("/api/auth", authRoutes);
 app.use("/api/clearance", clearanceRoutes);
 app.use("/api/otp", otpRoutes);
@@ -335,6 +352,13 @@ app.use("/api/logs", logRoutes);
 app.use("/api/blockchain", blockchainRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/chats", chatRoutes);
+
+// Backward-compatible legacy routes for older frontend builds that still call
+// /inspection, /applications, /payments without the /api prefix.
+app.use("/inspection", inspectionRoutes);
+app.use("/applications", applicationRoutes);
+app.use("/payments", paymentRoutes);
+app.use("/chats", chatRoutes);
 
 // ===================== USERS ROUTE =====================
 app.get("/api/users", async (req, res) => {
@@ -384,7 +408,17 @@ app.get("/api/test", (req, res) =>
 );
 
 // ===================== SERVER =====================
-const PORT = process.env.PORT || 5000;
+const PORT = Number(process.env.PORT || 5000);
+
+server.on("error", (error) => {
+  if (error && error.code === "EADDRINUSE") {
+    console.error(`❌ Port ${PORT} is already in use. Stop the existing process or set PORT to another value.`);
+    process.exit(1);
+  }
+
+  console.error("❌ Server startup error:", error);
+  process.exit(1);
+});
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);

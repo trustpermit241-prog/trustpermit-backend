@@ -23,7 +23,16 @@ router.post("/", async (req, res) => {
       cardLast4 = "",
     } = req.body;
 
-    console.log("Payment request body:", req.body);
+    console.log("💰 Creating payment:", {
+      applicationId,
+      userId,
+      name,
+      email,
+      amount,
+      method,
+      paymentMethod,
+      isValidApplicationId: mongoose.Types.ObjectId.isValid(applicationId),
+    });
 
     if (!name || !email || amount === undefined || amount === null || amount === "") {
       return res.status(400).json({
@@ -64,6 +73,12 @@ router.post("/", async (req, res) => {
       permitReleased: false,
     });
 
+    console.log("✅ Payment created:", {
+      paymentId: payment._id,
+      applicationId: payment.applicationId,
+      permitReleased: payment.permitReleased,
+    });
+
     return res.status(201).json({
       success: true,
       message: "Payment recorded",
@@ -85,6 +100,16 @@ router.get("/", async (req, res) => {
       .populate("applicationId")
       .populate("userId", "fullName email role")
       .sort({ createdAt: -1 });
+
+    console.log("📋 Fetched payments:", payments.length);
+    payments.forEach(p => {
+      console.log("   ├─", {
+        id: p._id,
+        applicationId: p.applicationId?._id,
+        permitReleased: p.permitReleased,
+        status: p.status,
+      });
+    });
 
     return res.json({
       success: true,
@@ -110,6 +135,13 @@ router.put("/:id/approve-release", async (req, res) => {
         message: "Payment not found",
       });
     }
+
+    console.log("💳 Approving payment:", {
+      paymentId: payment._id,
+      applicationId: payment.applicationId,
+      isValidObjectId: mongoose.Types.ObjectId.isValid(payment.applicationId),
+      applicationIdType: typeof payment.applicationId,
+    });
 
     payment.status = "approved";
     payment.permitReleased = true;
@@ -213,11 +245,23 @@ router.put("/:id/approve-release", async (req, res) => {
 
     await payment.save();
 
+    // Fetch the payment with populated applicationId to ensure frontend gets the correct data
+    const updatedPayment = await Payment.findById(payment._id)
+      .populate("applicationId")
+      .populate("userId", "fullName email role");
+
+    console.log("✅ Payment approved with:", {
+      paymentId: updatedPayment._id,
+      applicationId: updatedPayment.applicationId?._id,
+      permitReleased: updatedPayment.permitReleased,
+      blockchainHash: blockchainRecord?.hash?.substring(0, 16),
+    });
+
     const io = req.app.get("io");
 
     if (io) {
       io.emit("payment-updated", {
-        payment,
+        payment: updatedPayment,
         application,
         blockchainRecord,
       });
@@ -234,7 +278,7 @@ router.put("/:id/approve-release", async (req, res) => {
       message: blockchainRecord
         ? "Payment approved, permit released, and Solana proof saved"
         : "Payment approved and permit released. Solana proof was not created.",
-      payment,
+      payment: updatedPayment,
       application,
       blockchainRecord,
       solanaError,

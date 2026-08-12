@@ -104,20 +104,66 @@ app.use("/uploads/documents", express.static(documentsDir));
 // Debug route to check if file exists
 app.get("/api/uploads/check/:filename", (req, res) => {
   const filePath = path.join(documentsDir, req.params.filename);
+  const exists = fs.existsSync(filePath);
 
-  if (fs.existsSync(filePath)) {
+  console.log(`📁 File check: ${req.params.filename} - ${exists ? '✅ FOUND' : '❌ NOT FOUND'}`);
+  console.log(`   Full path: ${filePath}`);
+  console.log(`   Dir exists: ${fs.existsSync(documentsDir)}`);
+
+  if (exists) {
+    const stats = fs.statSync(filePath);
     return res.json({
       success: true,
       exists: true,
       path: `/uploads/documents/${req.params.filename}`,
+      size: stats.size,
+      created: stats.birthtime,
     });
+  }
+
+  // List files in directory for debugging
+  let filesInDir = [];
+  if (fs.existsSync(documentsDir)) {
+    filesInDir = fs.readdirSync(documentsDir).slice(0, 5); // Show first 5 files
   }
 
   return res.status(404).json({
     success: false,
     exists: false,
     message: "File not found on server. It may have been removed after redeploy/restart.",
+    requestedFile: req.params.filename,
+    expectedPath: filePath,
+    directoryPath: documentsDir,
+    directoryExists: fs.existsSync(documentsDir),
+    filesInDirectory: filesInDir,
   });
+});
+
+// Diagnostic endpoint - lists all files in documents folder
+app.get("/api/uploads/list", (req, res) => {
+  try {
+    const files = fs.existsSync(documentsDir) 
+      ? fs.readdirSync(documentsDir).map(f => ({
+          name: f,
+          path: `/uploads/documents/${f}`,
+          size: fs.statSync(path.join(documentsDir, f)).size,
+        }))
+      : [];
+
+    return res.json({
+      success: true,
+      directoryPath: documentsDir,
+      directoryExists: fs.existsSync(documentsDir),
+      fileCount: files.length,
+      files: files.slice(0, 20), // Show first 20 files
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to list files",
+      error: error.message,
+    });
+  }
 });
 
 // ===================== SERVER + SOCKET.IO =====================

@@ -16,8 +16,14 @@ router.get("/verify/:permitId", async (req, res) => {
   try {
     const { permitId } = req.params;
 
+    console.log("🔍 Verifying permit:", permitId);
+    console.log("   ├─ Type:", typeof permitId);
+    console.log("   ├─ Length:", permitId?.length);
+    console.log("   └─ Is valid ObjectId:", require("mongoose").Types.ObjectId.isValid(permitId));
+
     // Validate permitId format
     if (!permitId || permitId.length === 0) {
+      console.log("❌ Invalid permit ID provided");
       return res.status(400).json({
         success: false,
         message: "Invalid permit ID",
@@ -26,29 +32,61 @@ router.get("/verify/:permitId", async (req, res) => {
 
     const application = await Application.findById(permitId);
 
+    console.log("   └─ Application found:", application ? "YES" : "NO", application?._id);
+
     if (!application) {
+      console.log(`❌ Application not found for ID: ${permitId}`);
       return res.status(404).json({
         success: false,
         message: "Permit/Application not found",
       });
     }
 
+    console.log(`✅ Application found:`, {
+      id: application._id,
+      status: application.status,
+      businessName: application.businessName,
+    });
+
     const blockchainRecord = await BlockchainRecord.findOne({
       permitId,
     });
 
-    // Return success even if blockchain record is missing, but log it
+    console.log("   └─ BlockchainRecord found:", blockchainRecord ? "YES" : "NO");
+
+    // Return success if either application exists AND has been released
     if (!blockchainRecord) {
-      console.warn(`No blockchain record found for permit ${permitId}. Application status: ${application.status}`);
+      console.warn(`⚠️  No blockchain record found for permit ${permitId}. Application status: ${application.status}`);
       
-      // Still return success with the application data for display
+      // Check if permit was released (status should be "Released")
+      const isReleased = application.status === "Released" || application.permitReleased === true;
+      
+      if (!isReleased) {
+        console.log(`❌ Permit not released yet. Status: ${application.status}`);
+        return res.status(400).json({
+          success: false,
+          message: "Permit not released yet",
+          application: {
+            status: application.status,
+            businessName: application.businessName,
+          },
+        });
+      }
+
+      // Permit is released but blockchain record pending
+      console.log(`✅ Permit released (blockchain record pending)`);
       return res.json({
         success: true,
-        message: "Permit found (blockchain record pending)",
+        message: "Permit found and released (blockchain record pending)",
         application,
         blockchainRecord: null,
       });
     }
+
+    console.log(`✅ Blockchain record found:`, {
+      hash: blockchainRecord.hash?.substring(0, 16) + "...",
+      tx: blockchainRecord.transactionSignature?.substring(0, 16) + "...",
+    });
 
     res.json({
       success: true,
@@ -57,7 +95,7 @@ router.get("/verify/:permitId", async (req, res) => {
       blockchainRecord,
     });
   } catch (error) {
-    console.error("Verify permit error:", error);
+    console.error("❌ Verify permit error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to verify permit",

@@ -241,4 +241,48 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// ====================== RESET PASSWORD ======================
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and password are required.',
+      });
+    }
+
+    const normalizedEmail = String(email).toLowerCase().trim();
+    const user = await User.findOne({ email: normalizedEmail });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found.',
+      });
+    }
+
+    const newSalt = crypto.randomBytes(16).toString('hex');
+    const newPasswordHash = hashPassword(password, newSalt);
+
+    user.passwordHash = newPasswordHash;
+    user.salt = newSalt;
+    delete user.password;
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: 'Password reset successfully.',
+    });
+  } catch (error) {
+    console.error('RESET PASSWORD ERROR:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to reset password.',
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;

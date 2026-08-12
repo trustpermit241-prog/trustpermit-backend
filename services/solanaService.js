@@ -53,7 +53,29 @@ const saveHashToBlockchain = async (hash) => {
       console.log("⚠️ Skipping blockchain transaction");
       return "BLOCKCHAIN_DISABLED";
     }
+    // Ensure wallet has enough balance to pay for fees. If not, request a devnet airdrop.
+    const balance = await connection.getBalance(wallet.publicKey).catch((e) => {
+      console.error("Failed to fetch wallet balance:", e?.message || e);
+      return 0;
+    });
 
+    console.log(`Wallet balance: ${balance} lamports`);
+
+    const minLamportsForFee = 1000; // small safety threshold
+
+    if (balance < minLamportsForFee) {
+      try {
+        console.log("Wallet balance low — requesting devnet airdrop of 1 SOL...");
+        const airdropSig = await connection.requestAirdrop(wallet.publicKey, 1_000_000_000); // 1 SOL
+        await connection.confirmTransaction(airdropSig, "confirmed");
+        console.log("Airdrop confirmed:", airdropSig);
+      } catch (airErr) {
+        console.error("Airdrop failed:", airErr?.message || airErr);
+        // continue — if airdrop fails, transaction likely will fail later
+      }
+    }
+
+    // Create a tiny self-transfer transaction as a proof. Keep lamports small to avoid meaningful transfers.
     const transaction = new Transaction().add(
       SystemProgram.transfer({
         fromPubkey: wallet.publicKey,
@@ -62,9 +84,7 @@ const saveHashToBlockchain = async (hash) => {
       })
     );
 
-    const signature = await sendAndConfirmTransaction(connection, transaction, [
-      wallet,
-    ]);
+    const signature = await sendAndConfirmTransaction(connection, transaction, [wallet]);
 
     console.log("Blockchain Transaction Signature:", signature);
 

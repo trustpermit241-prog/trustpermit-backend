@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const Inspection = require("../models/Inspection");
+const Application = require("../models/Application");
 const User = require("../models/User");
 const mongoose = require("mongoose");
 const protect = require("../middleware/authMiddleware"); // JWT auth middleware
@@ -92,20 +93,95 @@ router.post("/schedule", protect, async (req, res) => {
 
     await inspection.save();
     console.log("✅ Inspection saved with ID:", inspection._id, "for citizen ID:", inspection.citizenId); // DEBUG
-    
-    await inspection.populate({
-      path: "citizenId",
-      select: "fullName email",
-    });
+
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("inspection-created", { inspection });
+    }
+
+    await inspection.populate([
+      { path: "citizenId", select: "fullName email role" },
+      { path: "scheduledBy", select: "fullName email role" },
+    ]);
+
+    let application = null;
+    if (citizen._id) {
+      application = await Application.findOne({
+        $or: [
+          { citizenId: citizen._id },
+          { userId: citizen._id },
+          { "applicant.email": citizen.email },
+          { "contact.email": citizen.email },
+          { email: citizen.email },
+        ],
+      })
+        .sort({ createdAt: -1 })
+        .lean();
+    }
 
     res.status(201).json({
       message: "Inspection scheduled successfully",
       inspection,
+      application,
     });
   } catch (err) {
     console.error("Schedule Inspection Error:", err);
     res.status(500).json({
       message: "Failed to schedule inspection",
+      error: err.message,
+    });
+  }
+});
+
+// ================= GET SINGLE INSPECTION BY ID =================
+router.get("/:id", protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid inspection ID" });
+    }
+
+    const inspection = await Inspection.findById(id)
+      .populate({ path: "citizenId", select: "fullName email role" })
+      .populate({ path: "scheduledBy", select: "fullName email role" });
+
+    if (!inspection) {
+      return res.status(404).json({ message: "Inspection not found" });
+    }
+
+    let application = null;
+
+    const citizenId = inspection.citizenId?._id || inspection.citizenId;
+    const citizenEmail = inspection.citizenId?.email || null;
+
+    if (citizenId) {
+      application = await Application.findOne({
+        $or: [
+          { citizenId },
+          { userId: citizenId },
+        ],
+      })
+        .sort({ createdAt: -1 })
+        .lean();
+    }
+
+    if (!application && citizenEmail) {
+      application = await Application.findOne({
+        $or: [
+          { "applicant.email": citizenEmail },
+          { "contact.email": citizenEmail },
+          { email: citizenEmail },
+        ],
+      })
+        .sort({ createdAt: -1 })
+        .lean();
+    }
+
+    res.json({ inspection, application });
+  } catch (err) {
+    res.status(500).json({
+      message: "Failed to fetch inspection",
       error: err.message,
     });
   }
@@ -211,10 +287,18 @@ router.patch("/:id/status", protect, async (req, res) => {
       id,
       { status },
       { new: true }
-    ).populate({ path: "citizenId", select: "fullName email" });
+    ).populate([
+      { path: "citizenId", select: "fullName email role" },
+      { path: "scheduledBy", select: "fullName email role" },
+    ]);
 
     if (!inspection) {
       return res.status(404).json({ message: "Inspection not found" });
+    }
+
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("inspection-updated", { inspection });
     }
 
     res.json(inspection);

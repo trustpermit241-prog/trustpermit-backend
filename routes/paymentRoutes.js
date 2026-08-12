@@ -123,17 +123,25 @@ router.put("/:id/approve-release", async (req, res) => {
       payment.applicationId && mongoose.Types.ObjectId.isValid(payment.applicationId);
 
     if (hasApplicationId) {
+      const expiryDate = new Date();
+      expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+
       application = await Application.findByIdAndUpdate(
         payment.applicationId,
         {
           $set: {
             status: "Released",
+            expiryDate,
           },
         },
         { new: true }
       );
 
-      const verificationUrl = `https://trustpermit-webclient.vercel.app/verify/${payment.applicationId}`;
+      // Build a verification redirect URL that points to this backend host.
+      // Scanning the QR will hit this backend endpoint which will redirect to the
+      // frontend verify UI when available, or fall back to the backend verify API.
+      const hostBase = `${req.protocol}://${req.get("host")}`;
+      const verificationUrl = `${hostBase}/api/blockchain/redirect/${payment.applicationId}`;
       payment.verificationUrl = verificationUrl;
 
       const existingRecord = await BlockchainRecord.findOne({
@@ -247,6 +255,64 @@ router.get("/:id", async (req, res) => {
       success: false,
       message: error.message,
     });
+  }
+});
+
+// ===================== RETRY BLOCKCHAIN FOR PAYMENT =====================
+router.post("/:id/retry-blockchain", async (req, res) => {
+  try {
+    const payment = await Payment.findById(req.params.id);
+
+    if (!payment) {
+      return res.status(404).json({ success: false, message: "Payment not found" });
+    }
+
+    if (!payment.applicationId) {
+      return res.status(400).json({ success: false, message: "Payment has no applicationId to anchor blockchain record." });
+    }
+
+    // create a new hash and attempt to save to blockchain
+    const hash = crypto.createHash("sha256").update(`${payment._id}-${payment.applicationId}-${Date.now()}`).digest("hex");
+
+    console.log("Retrying blockchain for payment", payment._id, "hash", hash);
+
+    let transactionSignature = "";
+    try {
+      transactionSignature = await saveHashToBlockchain(hash);
+    } catch (err) {
+      console.error("Retry blockchain error:", err);
+      return res.status(500).json({ success: false, message: "Blockchain retry failed.", error: err.message });
+    }
+
+    if (!transactionSignature || transactionSignature === "BLOCKCHAIN_DISABLED" || transactionSignature === "BLOCKCHAIN_ERROR") {
+      return res.status(500).json({ success: false, message: "Blockchain transaction did not complete.", transactionSignature });
+    }
+
+    const verificationUrl = payment.verificationUrl || `${req.protocol}://${req.get("host")}/api/blockchain/redirect/${payment.applicationId}`;
+
+    const blockchainRecord = await BlockchainRecord.create({
+      permitId: payment.applicationId,
+      paymentId: payment._id,
+      hash,
+      transactionSignature,
+      verificationUrl,
+    });
+
+    payment.blockchainRecord = {
+      hash,
+      transactionSignature,
+      createdAt: new Date(),
+    };
+
+    await payment.save();
+
+    const io = req.app.get("io");
+    if (io) io.emit("payment-updated", { payment, blockchainRecord });
+
+    return res.json({ success: true, message: "Blockchain record created", blockchainRecord, payment });
+  } catch (error) {
+    console.error("Retry blockchain exception:", error);
+    return res.status(500).json({ success: false, message: "Failed to retry blockchain", error: error.message });
   }
 });
 

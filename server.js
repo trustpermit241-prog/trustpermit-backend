@@ -351,6 +351,21 @@ app.get("/api/users", async (req, res) => {
   }
 });
 
+app.delete("/api/users/:id", async (req, res) => {
+  try {
+    const deletedUser = await User.findByIdAndDelete(req.params.id);
+
+    if (!deletedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({ success: true, message: "User deleted successfully" });
+  } catch (err) {
+    console.error("❌ Error deleting user:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 // ===================== ROOT ROUTES =====================
 app.get("/", (req, res) => res.send("🚀 TrustPermit API running"));
 

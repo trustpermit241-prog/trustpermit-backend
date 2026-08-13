@@ -21,7 +21,6 @@ router.get("/verify/:permitId", async (req, res) => {
     console.log("   ├─ Length:", permitId?.length);
     console.log("   └─ Is valid ObjectId:", require("mongoose").Types.ObjectId.isValid(permitId));
 
-    // Validate permitId format
     if (!permitId || permitId.length === 0) {
       console.log("❌ Invalid permit ID provided");
       return res.status(400).json({
@@ -30,7 +29,28 @@ router.get("/verify/:permitId", async (req, res) => {
       });
     }
 
-    const application = await Application.findById(permitId);
+    // Clean permitId (remove accidental surrounding quotes/angle-brackets) and prepare ObjectId if valid
+    const mongoose = require("mongoose");
+    const Types = mongoose.Types;
+    let cleanedId = String(permitId || "").trim();
+    // strip surrounding <, >, ", ' characters that sometimes appear when users copy URLs
+    cleanedId = cleanedId.replace(/^[<>"']+|[<>"']+$/g, "");
+
+    console.log("   └─ Cleaned ID:", cleanedId, "| Is valid ObjectId:", Types.ObjectId.isValid(cleanedId));
+
+    let application = null;
+    if (Types.ObjectId.isValid(cleanedId)) {
+      try {
+        // Use findById which safely handles ObjectId casting
+        application = await Application.findById(cleanedId);
+      } catch (findErr) {
+        console.warn("   └─ findById failed, falling back to string lookup:", findErr.message);
+        application = await Application.findOne({ _id: cleanedId });
+      }
+    } else {
+      // Fall back to searching by string id in case legacy records store strings
+      application = await Application.findOne({ _id: cleanedId });
+    }
 
     console.log("   └─ Application found:", application ? "YES" : "NO", application?._id);
 
@@ -48,19 +68,25 @@ router.get("/verify/:permitId", async (req, res) => {
       businessName: application.businessName,
     });
 
+    // Prepare search values for blockchain records: try ObjectId form and string form
+    const searchIds = [];
+    if (Types.ObjectId.isValid(cleanedId)) {
+      searchIds.push(new Types.ObjectId(cleanedId));
+    }
+    // Always include string form too
+    searchIds.push(cleanedId);
+
     const blockchainRecord = await BlockchainRecord.findOne({
-      permitId,
+      permitId: { $in: searchIds },
     });
 
     console.log("   └─ BlockchainRecord found:", blockchainRecord ? "YES" : "NO");
 
-    // Return success if either application exists AND has been released
     if (!blockchainRecord) {
       console.warn(`⚠️  No blockchain record found for permit ${permitId}. Application status: ${application.status}`);
-      
-      // Check if permit was released (status should be "Released")
+
       const isReleased = application.status === "Released" || application.permitReleased === true;
-      
+
       if (!isReleased) {
         console.log(`❌ Permit not released yet. Status: ${application.status}`);
         return res.status(400).json({
@@ -73,7 +99,6 @@ router.get("/verify/:permitId", async (req, res) => {
         });
       }
 
-      // Permit is released but blockchain record pending
       console.log(`✅ Permit released (blockchain record pending)`);
       return res.json({
         success: true,

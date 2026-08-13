@@ -169,8 +169,13 @@ router.put("/:id/approve-release", async (req, res) => {
         { new: true }
       );
 
-      // Build verification URL pointing to the frontend verify page
-      // This allows users to scan the QR code and go directly to the permit verification page
+      if (!application) {
+        return res.status(400).json({
+          success: false,
+          message: "Application not found for this payment, so permit cannot be released.",
+        });
+      }
+
       const frontendUrl = process.env.FRONTEND_URL || "https://trustpermit-webclient.vercel.app";
       const verificationUrl = `${frontendUrl.replace(/\/$/, "")}/verify/${payment.applicationId}`;
       payment.verificationUrl = verificationUrl;
@@ -203,8 +208,6 @@ router.put("/:id/approve-release", async (req, res) => {
           console.error("Solana transaction failed:", err);
         }
 
-        // Always create blockchain record, even if Solana transaction fails
-        // The record is essential for permit verification
         if (transactionSignature && transactionSignature !== "BLOCKCHAIN_DISABLED" && transactionSignature !== "BLOCKCHAIN_ERROR") {
           blockchainRecord = await BlockchainRecord.create({
             permitId: payment.applicationId,
@@ -220,13 +223,11 @@ router.put("/:id/approve-release", async (req, res) => {
             createdAt: new Date(),
           };
         } else {
-          // Create a blockchain record even if Solana is disabled or failed
-          // This ensures the permit can still be verified and displayed
           blockchainRecord = await BlockchainRecord.create({
             permitId: payment.applicationId,
             paymentId: payment._id,
             hash,
-            transactionSignature: transactionSignature || "PENDING_BLOCKCHAIN", // Placeholder if Solana unavailable
+            transactionSignature: transactionSignature || "PENDING_BLOCKCHAIN",
             verificationUrl,
           });
 
@@ -241,6 +242,13 @@ router.put("/:id/approve-release", async (req, res) => {
       }
     } else {
       payment.verificationUrl = "";
+    }
+
+    if (!blockchainRecord) {
+      return res.status(500).json({
+        success: false,
+        message: "Permit was marked released, but blockchain verification record was not created.",
+      });
     }
 
     await payment.save();

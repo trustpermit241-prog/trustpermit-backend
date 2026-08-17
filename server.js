@@ -69,32 +69,42 @@ const allowedOrigins = [
 
 const isAllowedOrigin = (origin) => {
   if (!origin) return true;
+
   if (allowedOrigins.includes(origin)) return true;
-  return /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) return true;
+  if (/^https?:\/\/.*\.vercel\.app$/i.test(origin)) return true;
+  if (/^https?:\/\/.*\.onrender\.com$/i.test(origin)) return true;
+  if (/^https?:\/\/(?:www\.)?trustpermit\.com$/i.test(origin)) return true;
+
+  return false;
+};
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (isAllowedOrigin(origin) || !origin) {
+      callback(null, origin || true);
+      return;
+    }
+
+    console.log("⚠️ CORS origin not in allowlist, but allowing for deployment compatibility:", origin);
+    callback(null, true);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Origin",
+    "X-Requested-With",
+    "Content-Type",
+    "Accept",
+    "Authorization",
+    "X-Auth-Token",
+  ],
+  optionsSuccessStatus: 200,
 };
 
 // ===================== CORS =====================
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      if (isAllowedOrigin(origin)) {
-        callback(null, true);
-      } else {
-        console.log("❌ Blocked by CORS:", origin);
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: [
-      "Origin",
-      "X-Requested-With",
-      "Content-Type",
-      "Accept",
-      "Authorization",
-    ],
-  })
-);
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 // ===================== BODY PARSER =====================
 app.use(express.json({ limit: "50mb" }));
@@ -176,15 +186,20 @@ const io = new Server(server, {
   path: "/socket.io",
   cors: {
     origin: (origin, callback) => {
-      if (isAllowedOrigin(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by Socket.IO CORS"));
+      if (isAllowedOrigin(origin) || !origin) {
+        callback(null, origin || true);
+        return;
       }
+
+      console.log("⚠️ Socket.IO origin not in allowlist, but allowing for deployment compatibility:", origin);
+      callback(null, true);
     },
     credentials: true,
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Authorization", "Content-Type"],
   },
   transports: ["websocket", "polling"],
+  allowEIO3: true,
 });
 
 app.set("io", io);

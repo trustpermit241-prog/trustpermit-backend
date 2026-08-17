@@ -82,7 +82,7 @@ const isAllowedOrigin = (origin) => {
 const corsOptions = {
   origin: (origin, callback) => {
     if (isAllowedOrigin(origin) || !origin) {
-      callback(null, true);
+      callback(null, origin || true);
       return;
     }
 
@@ -99,26 +99,12 @@ const corsOptions = {
     "Authorization",
     "X-Auth-Token",
   ],
-  exposedHeaders: ["X-Total-Count", "X-Page-Number"],
   optionsSuccessStatus: 200,
-  maxAge: 86400,
 };
 
 // ===================== CORS =====================
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
-
-// Add additional CORS headers middleware for extra compatibility
-app.use((req, res, next) => {
-  const origin = req.get("origin");
-  if (isAllowedOrigin(origin) || !origin) {
-    res.header("Access-Control-Allow-Origin", origin || "*");
-    res.header("Access-Control-Allow-Credentials", "true");
-    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Auth-Token");
-  }
-  next();
-});
 
 // ===================== BODY PARSER =====================
 app.use(express.json({ limit: "50mb" }));
@@ -201,7 +187,7 @@ const io = new Server(server, {
   cors: {
     origin: (origin, callback) => {
       if (isAllowedOrigin(origin) || !origin) {
-        callback(null, true);
+        callback(null, origin || true);
         return;
       }
 
@@ -210,12 +196,10 @@ const io = new Server(server, {
     },
     credentials: true,
     methods: ["GET", "POST"],
-    allowedHeaders: ["Authorization", "Content-Type", "X-Requested-With"],
+    allowedHeaders: ["Authorization", "Content-Type"],
   },
   transports: ["websocket", "polling"],
   allowEIO3: true,
-  pingInterval: 25000,
-  pingTimeout: 60000,
 });
 
 app.set("io", io);

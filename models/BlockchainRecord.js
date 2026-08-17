@@ -3,13 +3,12 @@ const mongoose = require("mongoose");
 const blockchainSchema = new mongoose.Schema(
   {
     permitId: {
-      type: mongoose.Schema.Types.Mixed,
+      type: mongoose.Schema.Types.ObjectId,
       ref: "Application",
       required: true,
-      index: true,
     },
     paymentId: {
-      type: mongoose.Schema.Types.Mixed,
+      type: mongoose.Schema.Types.ObjectId,
       ref: "Payment",
       default: null,
     },

@@ -23,16 +23,7 @@ router.post("/", async (req, res) => {
       cardLast4 = "",
     } = req.body;
 
-    console.log("💰 Creating payment:", {
-      applicationId,
-      userId,
-      name,
-      email,
-      amount,
-      method,
-      paymentMethod,
-      isValidApplicationId: mongoose.Types.ObjectId.isValid(applicationId),
-    });
+    console.log("Payment request body:", req.body);
 
     if (!name || !email || amount === undefined || amount === null || amount === "") {
       return res.status(400).json({
@@ -73,12 +64,6 @@ router.post("/", async (req, res) => {
       permitReleased: false,
     });
 
-    console.log("✅ Payment created:", {
-      paymentId: payment._id,
-      applicationId: payment.applicationId,
-      permitReleased: payment.permitReleased,
-    });
-
     return res.status(201).json({
       success: true,
       message: "Payment recorded",
@@ -100,16 +85,6 @@ router.get("/", async (req, res) => {
       .populate("applicationId")
       .populate("userId", "fullName email role")
       .sort({ createdAt: -1 });
-
-    console.log("📋 Fetched payments:", payments.length);
-    payments.forEach(p => {
-      console.log("   ├─", {
-        id: p._id,
-        applicationId: p.applicationId?._id,
-        permitReleased: p.permitReleased,
-        status: p.status,
-      });
-    });
 
     return res.json({
       success: true,
@@ -135,13 +110,6 @@ router.put("/:id/approve-release", async (req, res) => {
         message: "Payment not found",
       });
     }
-
-    console.log("💳 Approving payment:", {
-      paymentId: payment._id,
-      applicationId: payment.applicationId,
-      isValidObjectId: mongoose.Types.ObjectId.isValid(payment.applicationId),
-      applicationIdType: typeof payment.applicationId,
-    });
 
     payment.status = "approved";
     payment.permitReleased = true;
@@ -169,13 +137,8 @@ router.put("/:id/approve-release", async (req, res) => {
         { new: true }
       );
 
-      if (!application) {
-        return res.status(400).json({
-          success: false,
-          message: "Application not found for this payment, so permit cannot be released.",
-        });
-      }
-
+      // Build verification URL pointing to the frontend verify page
+      // This allows users to scan the QR code and go directly to the permit verification page
       const frontendUrl = process.env.FRONTEND_URL || "https://trustpermit-webclient.vercel.app";
       const verificationUrl = `${frontendUrl.replace(/\/$/, "")}/verify/${payment.applicationId}`;
       payment.verificationUrl = verificationUrl;
@@ -208,6 +171,8 @@ router.put("/:id/approve-release", async (req, res) => {
           console.error("Solana transaction failed:", err);
         }
 
+        // Always create blockchain record, even if Solana transaction fails
+        // The record is essential for permit verification
         if (transactionSignature && transactionSignature !== "BLOCKCHAIN_DISABLED" && transactionSignature !== "BLOCKCHAIN_ERROR") {
           blockchainRecord = await BlockchainRecord.create({
             permitId: payment.applicationId,
@@ -223,11 +188,13 @@ router.put("/:id/approve-release", async (req, res) => {
             createdAt: new Date(),
           };
         } else {
+          // Create a blockchain record even if Solana is disabled or failed
+          // This ensures the permit can still be verified and displayed
           blockchainRecord = await BlockchainRecord.create({
             permitId: payment.applicationId,
             paymentId: payment._id,
             hash,
-            transactionSignature: transactionSignature || "PENDING_BLOCKCHAIN",
+            transactionSignature: transactionSignature || "PENDING_BLOCKCHAIN", // Placeholder if Solana unavailable
             verificationUrl,
           });
 
@@ -244,32 +211,13 @@ router.put("/:id/approve-release", async (req, res) => {
       payment.verificationUrl = "";
     }
 
-    if (!blockchainRecord) {
-      return res.status(500).json({
-        success: false,
-        message: "Permit was marked released, but blockchain verification record was not created.",
-      });
-    }
-
     await payment.save();
-
-    // Fetch the payment with populated applicationId to ensure frontend gets the correct data
-    const updatedPayment = await Payment.findById(payment._id)
-      .populate("applicationId")
-      .populate("userId", "fullName email role");
-
-    console.log("✅ Payment approved with:", {
-      paymentId: updatedPayment._id,
-      applicationId: updatedPayment.applicationId?._id,
-      permitReleased: updatedPayment.permitReleased,
-      blockchainHash: blockchainRecord?.hash?.substring(0, 16),
-    });
 
     const io = req.app.get("io");
 
     if (io) {
       io.emit("payment-updated", {
-        payment: updatedPayment,
+        payment,
         application,
         blockchainRecord,
       });
@@ -286,7 +234,7 @@ router.put("/:id/approve-release", async (req, res) => {
       message: blockchainRecord
         ? "Payment approved, permit released, and Solana proof saved"
         : "Payment approved and permit released. Solana proof was not created.",
-      payment: updatedPayment,
+      payment,
       application,
       blockchainRecord,
       solanaError,

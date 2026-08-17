@@ -16,102 +16,39 @@ router.get("/verify/:permitId", async (req, res) => {
   try {
     const { permitId } = req.params;
 
-    console.log("🔍 Verifying permit:", permitId);
-    console.log("   ├─ Type:", typeof permitId);
-    console.log("   ├─ Length:", permitId?.length);
-    console.log("   └─ Is valid ObjectId:", require("mongoose").Types.ObjectId.isValid(permitId));
-
+    // Validate permitId format
     if (!permitId || permitId.length === 0) {
-      console.log("❌ Invalid permit ID provided");
       return res.status(400).json({
         success: false,
         message: "Invalid permit ID",
       });
     }
 
-    // Clean permitId (remove accidental surrounding quotes/angle-brackets) and prepare ObjectId if valid
-    const mongoose = require("mongoose");
-    const Types = mongoose.Types;
-    let cleanedId = String(permitId || "").trim();
-    // strip surrounding <, >, ", ' characters that sometimes appear when users copy URLs
-    cleanedId = cleanedId.replace(/^[<>"']+|[<>"']+$/g, "");
-
-    console.log("   └─ Cleaned ID:", cleanedId, "| Is valid ObjectId:", Types.ObjectId.isValid(cleanedId));
-
-    let application = null;
-    if (Types.ObjectId.isValid(cleanedId)) {
-      try {
-        // Use findById which safely handles ObjectId casting
-        application = await Application.findById(cleanedId);
-      } catch (findErr) {
-        console.warn("   └─ findById failed, falling back to string lookup:", findErr.message);
-        application = await Application.findOne({ _id: cleanedId });
-      }
-    } else {
-      // Fall back to searching by string id in case legacy records store strings
-      application = await Application.findOne({ _id: cleanedId });
-    }
-
-    console.log("   └─ Application found:", application ? "YES" : "NO", application?._id);
+    const application = await Application.findById(permitId);
 
     if (!application) {
-      console.log(`❌ Application not found for ID: ${permitId}`);
       return res.status(404).json({
         success: false,
         message: "Permit/Application not found",
       });
     }
 
-    console.log(`✅ Application found:`, {
-      id: application._id,
-      status: application.status,
-      businessName: application.businessName,
-    });
-
-    // Prepare search values for blockchain records: try ObjectId form and string form
-    const searchIds = [];
-    if (Types.ObjectId.isValid(cleanedId)) {
-      searchIds.push(new Types.ObjectId(cleanedId));
-    }
-    // Always include string form too
-    searchIds.push(cleanedId);
-
     const blockchainRecord = await BlockchainRecord.findOne({
-      permitId: { $in: searchIds },
+      permitId,
     });
 
-    console.log("   └─ BlockchainRecord found:", blockchainRecord ? "YES" : "NO");
-
+    // Return success even if blockchain record is missing, but log it
     if (!blockchainRecord) {
-      console.warn(`⚠️  No blockchain record found for permit ${permitId}. Application status: ${application.status}`);
-
-      const isReleased = application.status === "Released" || application.permitReleased === true;
-
-      if (!isReleased) {
-        console.log(`❌ Permit not released yet. Status: ${application.status}`);
-        return res.status(400).json({
-          success: false,
-          message: "Permit not released yet",
-          application: {
-            status: application.status,
-            businessName: application.businessName,
-          },
-        });
-      }
-
-      console.log(`✅ Permit released (blockchain record pending)`);
+      console.warn(`No blockchain record found for permit ${permitId}. Application status: ${application.status}`);
+      
+      // Still return success with the application data for display
       return res.json({
         success: true,
-        message: "Permit found and released (blockchain record pending)",
+        message: "Permit found (blockchain record pending)",
         application,
         blockchainRecord: null,
       });
     }
-
-    console.log(`✅ Blockchain record found:`, {
-      hash: blockchainRecord.hash?.substring(0, 16) + "...",
-      tx: blockchainRecord.transactionSignature?.substring(0, 16) + "...",
-    });
 
     res.json({
       success: true,
@@ -120,7 +57,7 @@ router.get("/verify/:permitId", async (req, res) => {
       blockchainRecord,
     });
   } catch (error) {
-    console.error("❌ Verify permit error:", error);
+    console.error("Verify permit error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to verify permit",

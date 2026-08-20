@@ -4,10 +4,11 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const SystemLog = require('../models/SystemLog');
+const authMiddleware = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'trustpermit_secret_key';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 function hashPassword(password, salt) {
   return crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
@@ -93,8 +94,12 @@ router.post('/register', async (req, res) => {
 });
 
 // ====================== CREATE STAFF/ADMIN ======================
-router.post('/create', async (req, res) => {
+router.post('/create', authMiddleware, async (req, res) => {
   try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Admin access required.' });
+    }
+
     const { fullName, name, email, password, role } = req.body;
     const userName = fullName || name;
     const normalizedRole = String(role || 'citizen').toLowerCase().trim();
@@ -242,7 +247,7 @@ router.post('/login', async (req, res) => {
 });
 
 // ====================== RESET PASSWORD ======================
-router.post('/reset-password', async (req, res) => {
+router.post('/reset-password', authMiddleware, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -254,6 +259,13 @@ router.post('/reset-password', async (req, res) => {
     }
 
     const normalizedEmail = String(email).toLowerCase().trim();
+    if (normalizedEmail !== String(req.user.email).toLowerCase()) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only reset your own password.',
+      });
+    }
+
     const user = await User.findOne({ email: normalizedEmail });
 
     if (!user) {

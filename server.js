@@ -2,6 +2,8 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 const crypto = require("crypto");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -25,9 +27,33 @@ const chatRoutes = require("./routes/chatRoutes");
 const User = require("./models/User");
 const Chat = require("./models/Chat");
 const SystemLog = require("./models/SystemLog");
+const authMiddleware = require("./middleware/authMiddleware");
 
 // ===================== EXPRESS APP =====================
 const app = express();
+
+if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
+
+app.disable("x-powered-by");
+app.use(helmet());
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { success: false, message: "Too many requests. Please try again later." },
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { success: false, message: "Too many authentication attempts. Please try again later." },
+});
 
 // ===================== ENSURE UPLOAD FOLDERS EXIST =====================
 const uploadsDir = path.join(__dirname, "uploads");
@@ -55,7 +81,6 @@ const allowedOrigins = [
   "https://trustpermit.com",
   "https://www.trustpermit.com",
   "https://trustpermit-webclient.vercel.app",
-  "https://trustpermitbackend.onrender.com",
   "https://trustpermit-backend.onrender.com",
   "http://localhost:3000",
   "http://localhost:3001",
@@ -67,14 +92,16 @@ const allowedOrigins = [
   "http://127.0.0.1:5173",
 ];
 
+if (process.env.FRONTEND_URL) {
+  allowedOrigins.push(process.env.FRONTEND_URL.replace(/\/$/, ""));
+}
+
 const isAllowedOrigin = (origin) => {
   if (!origin) return true;
 
   if (allowedOrigins.includes(origin)) return true;
-  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) return true;
-  if (/^https?:\/\/.*\.vercel\.app$/i.test(origin)) return true;
-  if (/^https?:\/\/.*\.onrender\.com$/i.test(origin)) return true;
-  if (/^https?:\/\/(?:www\.)?trustpermit\.com$/i.test(origin)) return true;
+  if (process.env.NODE_ENV !== "production" && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) return true;
+  if (/^https?:\/\/trustpermit-[a-z0-9-]+\.vercel\.app$/i.test(origin)) return true;
 
   return false;
 };
@@ -86,8 +113,8 @@ const corsOptions = {
       return;
     }
 
-    console.log("⚠️ CORS origin not in allowlist, but allowing for deployment compatibility:", origin);
-    callback(null, true);
+    console.warn("Blocked CORS origin:", origin);
+    callback(new Error("Origin is not allowed by CORS"));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -105,17 +132,27 @@ const corsOptions = {
 // ===================== CORS =====================
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
+app.use("/api", apiLimiter);
+app.use("/api/auth", authLimiter);
 
 // ===================== BODY PARSER =====================
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(express.json({ limit: "2mb" }));
+app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
 // ===================== STATIC FILES =====================
 app.use("/uploads", express.static(uploadsDir));
 app.use("/uploads/documents", express.static(documentsDir));
 
 // Debug route to check if file exists
-app.get("/api/uploads/check/:filename", (req, res) => {
+app.get("/api/uploads/check/:filename", authMiddleware, (req, res) => {
+  if (!["admin", "staff"].includes(req.user.role)) {
+    return res.status(403).json({ success: false, message: "Admin or staff access required" });
+  }
+
+  if (path.basename(req.params.filename) !== req.params.filename) {
+    return res.status(400).json({ success: false, message: "Invalid filename" });
+  }
+
   const filePath = path.join(documentsDir, req.params.filename);
   const exists = fs.existsSync(filePath);
 
@@ -153,7 +190,11 @@ app.get("/api/uploads/check/:filename", (req, res) => {
 });
 
 // Diagnostic endpoint - lists all files in documents folder
-app.get("/api/uploads/list", (req, res) => {
+app.get("/api/uploads/list", authMiddleware, (req, res) => {
+  if (!["admin", "staff"].includes(req.user.role)) {
+    return res.status(403).json({ success: false, message: "Admin or staff access required" });
+  }
+
   try {
     const files = fs.existsSync(documentsDir) 
       ? fs.readdirSync(documentsDir).map(f => ({
@@ -191,8 +232,8 @@ const io = new Server(server, {
         return;
       }
 
-      console.log("⚠️ Socket.IO origin not in allowlist, but allowing for deployment compatibility:", origin);
-      callback(null, true);
+      console.warn("Blocked Socket.IO origin:", origin);
+      callback(new Error("Origin is not allowed by CORS"));
     },
     credentials: true,
     methods: ["GET", "POST"],
@@ -397,8 +438,12 @@ mongoose
   .then(async () => {
     console.log("✅ MongoDB connected");
 
-    await createDefaultUser("admin", "admin@trustpermit.com", "admin123");
-    await createDefaultUser("staff", "staff@cityhall.gov", "staff123");
+    if (process.env.DEFAULT_ADMIN_EMAIL && process.env.DEFAULT_ADMIN_PASSWORD) {
+      await createDefaultUser("admin", process.env.DEFAULT_ADMIN_EMAIL, process.env.DEFAULT_ADMIN_PASSWORD);
+    }
+    if (process.env.DEFAULT_STAFF_EMAIL && process.env.DEFAULT_STAFF_PASSWORD) {
+      await createDefaultUser("staff", process.env.DEFAULT_STAFF_EMAIL, process.env.DEFAULT_STAFF_PASSWORD);
+    }
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err);
@@ -425,8 +470,12 @@ app.use("/payments", paymentRoutes);
 app.use("/chats", chatRoutes);
 
 // ===================== USERS ROUTE =====================
-app.get("/api/users", async (req, res) => {
+app.get("/api/users", authMiddleware, async (req, res) => {
   try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
     const filter = {};
     if (req.query.role) filter.role = req.query.role;
 
@@ -439,8 +488,12 @@ app.get("/api/users", async (req, res) => {
   }
 });
 
-app.delete("/api/users/:id", async (req, res) => {
+app.delete("/api/users/:id", authMiddleware, async (req, res) => {
   try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
     const deletedUser = await User.findByIdAndDelete(req.params.id);
 
     if (!deletedUser) {

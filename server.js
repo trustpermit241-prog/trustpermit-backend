@@ -11,6 +11,14 @@ const path = require("path");
 const fs = require("fs");
 require("dotenv").config();
 
+if (
+  process.env.NODE_ENV === "production" &&
+  (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32)
+) {
+  console.error("Startup aborted: JWT_SECRET must contain at least 32 characters in production.");
+  process.exit(1);
+}
+
 // ===================== ROUTES =====================
 const authRoutes = require("./routes/authRoutes");
 const clearanceRoutes = require("./routes/clearanceRoutes");
@@ -472,8 +480,8 @@ app.use("/chats", chatRoutes);
 // ===================== USERS ROUTE =====================
 app.get("/api/users", authMiddleware, async (req, res) => {
   try {
-    if (req.user.role !== "admin") {
-      return res.status(403).json({ message: "Admin access required" });
+    if (!["admin", "staff"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Admin or staff access required" });
     }
 
     const filter = {};

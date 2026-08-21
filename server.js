@@ -263,6 +263,14 @@ io.on("connection", (socket) => {
     socket.join(roomId);
   });
 
+  socket.on("staff_typing", ({ roomId, isTyping }) => {
+    if (!roomId) return;
+    socket.to(roomId).emit("staff_typing", {
+      roomId,
+      isTyping: Boolean(isTyping),
+    });
+  });
+
   socket.on("user_request_staff", async (data) => {
     try {
       const roomId = data.roomId || `chat_${data.userId}`;

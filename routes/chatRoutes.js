@@ -1,7 +1,13 @@
 const express = require("express");
+const multer = require("multer");
 const router = express.Router();
 const Chat = require("../models/Chat");
-const upload = require("../middleware/uploadMiddleware");
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, callback) => callback(null, file.mimetype.startsWith("image/")),
+});
 
 // GET ALL CHATS FOR STAFF
 router.get("/", async (req, res) => {
@@ -41,7 +47,7 @@ router.post("/:roomId/attachment", upload.single("file"), async (req, res) => {
     }
 
     res.json({
-      url: `/uploads/${req.file.filename}`,
+      url: `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`,
       name: req.file.originalname,
       type: req.file.mimetype,
     });

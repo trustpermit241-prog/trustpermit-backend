@@ -496,6 +496,27 @@ app.get("/api/users", authMiddleware, async (req, res) => {
   }
 });
 
+app.put("/api/users/profile-image", authMiddleware, async (req, res) => {
+  try {
+    const profileImage = typeof req.body.profileImage === "string" ? req.body.profileImage : "";
+    if (profileImage.length > 2 * 1024 * 1024) {
+      return res.status(413).json({ message: "Profile image is too large" });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id || req.user.id,
+      { profileImage },
+      { new: true, select: "fullName email role status profileImage" }
+    );
+
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.json(user);
+  } catch (err) {
+    console.error("❌ Error updating profile image:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 app.delete("/api/users/:id", authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== "admin") {

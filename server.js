@@ -318,14 +318,14 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("send_chat_message", async ({ roomId, sender, text, time }) => {
+  socket.on("send_chat_message", async ({ roomId, sender, text, time, attachmentUrl, attachmentName, attachmentType }) => {
     try {
       if (!roomId || !text) return;
 
       const chat = await Chat.findOne({ roomId });
       if (!chat) return;
 
-      const message = { sender, text, time };
+      const message = { sender, text, time, attachmentUrl, attachmentName, attachmentType };
 
       chat.messages.push(message);
       chat.lastMessage = text;

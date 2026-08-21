@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const Chat = require("../models/Chat");
+const upload = require("../middleware/uploadMiddleware");
 
 // GET ALL CHATS FOR STAFF
 router.get("/", async (req, res) => {
@@ -22,6 +23,28 @@ router.get("/:roomId", async (req, res) => {
     }
 
     res.json(chat);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// UPLOAD A CHAT ATTACHMENT
+router.post("/:roomId/attachment", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    const chat = await Chat.findOne({ roomId: req.params.roomId });
+    if (!chat) {
+      return res.status(404).json({ message: "Chat not found" });
+    }
+
+    res.json({
+      url: `/uploads/${req.file.filename}`,
+      name: req.file.originalname,
+      type: req.file.mimetype,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

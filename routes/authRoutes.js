@@ -8,7 +8,12 @@ const authMiddleware = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-const JWT_SECRET = process.env.JWT_SECRET;
+// Ensure JWT_SECRET is set with a fallback for development
+const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-key-change-in-production';
+
+if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+  console.warn('⚠️ WARNING: JWT_SECRET environment variable not set in production!');
+}
 
 function hashPassword(password, salt) {
   return crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
@@ -19,6 +24,14 @@ function generateApiToken() {
 }
 
 function generateJwtToken(user) {
+  if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET is not configured');
+  }
+  
+  if (!user || !user._id) {
+    throw new Error('User object is invalid for token generation');
+  }
+
   return jwt.sign(
     {
       id: user._id,

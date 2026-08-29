@@ -1,7 +1,8 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
-const JWT_SECRET = process.env.JWT_SECRET;
+// Ensure JWT_SECRET is set with a fallback for development
+const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-key-change-in-production';
 
 module.exports = async (req, res, next) => {
   try {

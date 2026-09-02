@@ -47,6 +47,20 @@
 7. Wait for deployment (~2-3 minutes)
 8. Once deployed, you'll get a URL like `https://trustpermit-backend.onrender.com`
 
+### Configure persistent document storage
+
+The default `backend/uploads` directory is ephemeral on Render. Add a persistent disk
+to the web service before accepting production uploads:
+
+1. Open the service's **Disks** settings and add a disk.
+2. Set the mount path to `/var/data`.
+3. Add the environment variable `UPLOADS_DIR=/var/data/uploads`.
+4. Redeploy the service.
+
+Existing files that disappeared from the ephemeral filesystem cannot be recovered by
+the application and must be uploaded again. Future uploads will remain available
+across restarts and deployments after the disk is configured.
+
 ## Step 3: Test the Deployment
 
 1. Visit `https://trustpermit-backend.onrender.com/api/health`

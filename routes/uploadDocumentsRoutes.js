@@ -10,7 +10,10 @@ const authMiddleware = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-const uploadDir = path.join(__dirname, "../uploads/documents");
+const uploadRoot = process.env.UPLOADS_DIR
+  ? path.resolve(process.env.UPLOADS_DIR)
+  : path.join(__dirname, "../uploads");
+const uploadDir = path.join(uploadRoot, "documents");
 
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });

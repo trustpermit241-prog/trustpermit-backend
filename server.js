@@ -64,8 +64,10 @@ const authLimiter = rateLimit({
 });
 
 // ===================== ENSURE UPLOAD FOLDERS EXIST =====================
-const uploadsDir = path.join(__dirname, "uploads");
-const documentsDir = path.join(__dirname, "uploads", "documents");
+const uploadsDir = process.env.UPLOADS_DIR
+  ? path.resolve(process.env.UPLOADS_DIR)
+  : path.join(__dirname, "uploads");
+const documentsDir = path.join(uploadsDir, "documents");
 
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });

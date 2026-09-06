@@ -31,6 +31,7 @@ const auditRoutes = require("./routes/auditRoutes");
 const blockchainRoutes = require("./routes/blockchainRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const chatRoutes = require("./routes/chatRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
 
 // ===================== MODELS =====================
 const User = require("./models/User");
@@ -59,7 +60,7 @@ const apiLimiter = rateLimit({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 10,
+  limit: process.env.NODE_ENV === "production" ? 10 : 50,
   standardHeaders: "draft-8",
   legacyHeaders: false,
   message: { success: false, message: "Too many authentication attempts. Please try again later." },
@@ -484,6 +485,7 @@ app.use("/api/audit", auditRoutes);
 app.use("/api/blockchain", blockchainRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/chats", chatRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // Backward-compatible legacy routes for older frontend builds that still call
 // /inspection, /applications, /payments without the /api prefix.

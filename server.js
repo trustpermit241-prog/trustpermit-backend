@@ -27,6 +27,7 @@ const inspectionRoutes = require("./routes/inspection");
 const applicationRoutes = require("./routes/applicationRoutes");
 const uploadDocumentsRoutes = require("./routes/uploadDocumentsRoutes");
 const logRoutes = require("./routes/logRoutes");
+const auditRoutes = require("./routes/auditRoutes");
 const blockchainRoutes = require("./routes/blockchainRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const chatRoutes = require("./routes/chatRoutes");
@@ -36,6 +37,7 @@ const User = require("./models/User");
 const Chat = require("./models/Chat");
 const SystemLog = require("./models/SystemLog");
 const authMiddleware = require("./middleware/authMiddleware");
+const auditMiddleware = require("./middleware/auditMiddleware");
 
 // ===================== EXPRESS APP =====================
 const app = express();
@@ -148,6 +150,7 @@ app.use("/api/auth", authLimiter);
 // ===================== BODY PARSER =====================
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
+app.use(auditMiddleware);
 
 // ===================== STATIC FILES =====================
 app.use("/uploads", express.static(uploadsDir));
@@ -477,6 +480,7 @@ app.use("/api/inspection", inspectionRoutes);
 app.use("/api/applications/upload-documents", uploadDocumentsRoutes);
 app.use("/api/applications", applicationRoutes);
 app.use("/api/logs", logRoutes);
+app.use("/api/audit", auditRoutes);
 app.use("/api/blockchain", blockchainRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/chats", chatRoutes);

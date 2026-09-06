@@ -72,6 +72,10 @@ const uploadsDir = process.env.UPLOADS_DIR
   : path.join(__dirname, "uploads");
 const documentsDir = path.join(uploadsDir, "documents");
 
+if (process.env.NODE_ENV === "production" && !process.env.UPLOADS_DIR) {
+  console.warn("UPLOADS_DIR is not configured in production. Uploaded documents may be lost after restart or redeploy.");
+}
+
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }

@@ -7,6 +7,11 @@ const inspectionSchema = new mongoose.Schema(
       ref: "User",
       required: true
     },
+    applicationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Application",
+      default: null
+    },
     type: {
       type: String,
       required: true
@@ -31,6 +36,14 @@ const inspectionSchema = new mongoose.Schema(
     inspector: {
       type: String,
       default: ""
+    },
+    certificateUrl: {
+      type: String,
+      default: ""
+    },
+    certificateIssuedAt: {
+      type: Date,
+      default: null
     }
   },
   { timestamps: true }

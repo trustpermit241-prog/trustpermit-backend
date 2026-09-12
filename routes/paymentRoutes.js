@@ -4,6 +4,8 @@ const crypto = require("crypto");
 
 const Payment = require("../models/Payment");
 const Application = require("../models/Application");
+const Inspection = require("../models/Inspection");
+const User = require("../models/User");
 const BlockchainRecord = require("../models/BlockchainRecord");
 const saveHashToBlockchain = require("../services/solanaService");
 
@@ -86,9 +88,31 @@ router.get("/", async (req, res) => {
       .populate("userId", "fullName email role")
       .sort({ createdAt: -1 });
 
+    const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
+    const paymentsWithCertificates = await Promise.all(
+      payments.map(async (payment) => {
+        if (!payment.permitReleased || !payment.applicationId || payment.inspectionCertificates?.length) {
+          return payment;
+        }
+
+        const approvedInspections = await Inspection.find({
+          applicationId: payment.applicationId._id || payment.applicationId,
+          status: "Approved",
+        }).sort({ date: 1 });
+
+        payment.inspectionCertificates = approvedInspections.map((inspection) => ({
+          inspectionId: inspection._id,
+          type: inspection.type,
+          certificateUrl: inspection.certificateUrl || `${frontendUrl}/inspection-certificate/${inspection._id}`,
+        }));
+
+        return payment;
+      })
+    );
+
     return res.json({
       success: true,
-      payments,
+      payments: paymentsWithCertificates,
     });
   } catch (error) {
     console.error("Fetch payments error:", error);
@@ -111,9 +135,68 @@ router.put("/:id/approve-release", async (req, res) => {
       });
     }
 
+    const paymentStatus = String(payment.status || "").toLowerCase();
+    if (!["paid", "approved", "success", "completed"].includes(paymentStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: "Payment must be successfully paid before the permit can be released.",
+      });
+    }
+
+    if (!payment.applicationId || !mongoose.Types.ObjectId.isValid(payment.applicationId)) {
+      return res.status(400).json({
+        success: false,
+        message: "This payment is not linked to an application.",
+      });
+    }
+
+    const applicationForInspection = await Application.findById(payment.applicationId).select("citizenId userId applicant contact email");
+    if (!applicationForInspection) {
+      return res.status(404).json({ success: false, message: "Application not found for this payment." });
+    }
+
+    const inspectionOwners = [applicationForInspection.citizenId, applicationForInspection.userId].filter(Boolean);
+    const inspectionMatch = [
+      { applicationId: payment.applicationId },
+      ...(inspectionOwners.length ? [{ citizenId: { $in: inspectionOwners } }] : []),
+    ];
+    if (applicationForInspection.applicant?.email || applicationForInspection.contact?.email || applicationForInspection.email) {
+      inspectionMatch.push({
+        citizenId: {
+          $in: await User.find({
+            email: {
+              $in: [applicationForInspection.applicant?.email, applicationForInspection.contact?.email, applicationForInspection.email].filter(Boolean),
+            },
+          }).distinct("_id"),
+        },
+      });
+    }
+
+    const inspections = await Inspection.find({ $or: inspectionMatch }).sort({ date: 1 });
+    if (!inspections.length) {
+      return res.status(400).json({ success: false, message: "An approved inspection is required before releasing the permit." });
+    }
+
+    const incompleteInspection = inspections.find((inspection) => inspection.status !== "Approved");
+    if (incompleteInspection) {
+      return res.status(400).json({
+        success: false,
+        message: "All inspections must be approved before releasing the permit.",
+        inspectionStatus: incompleteInspection.status || "Pending",
+      });
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+    const inspectionCertificates = inspections.map((inspection) => ({
+      inspectionId: inspection._id,
+      type: inspection.type,
+      certificateUrl: inspection.certificateUrl || `${frontendUrl.replace(/\/$/, "")}/inspection-certificate/${inspection._id}`,
+    }));
+
     payment.status = "approved";
     payment.permitReleased = true;
     payment.permitReleasedAt = new Date();
+    payment.inspectionCertificates = inspectionCertificates;
 
     let application = null;
     let blockchainRecord = null;
@@ -139,7 +222,6 @@ router.put("/:id/approve-release", async (req, res) => {
 
       // Build verification URL pointing to the frontend verify page
       // This allows users to scan the QR code and go directly to the permit verification page
-      const frontendUrl = process.env.FRONTEND_URL || "https://trustpermit-webclient.vercel.app";
       const verificationUrl = `${frontendUrl.replace(/\/$/, "")}/verify/${payment.applicationId}`;
       payment.verificationUrl = verificationUrl;
 

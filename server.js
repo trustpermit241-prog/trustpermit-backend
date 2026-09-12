@@ -48,7 +48,11 @@ if (process.env.NODE_ENV === "production") {
 }
 
 app.disable("x-powered-by");
-app.use(helmet());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

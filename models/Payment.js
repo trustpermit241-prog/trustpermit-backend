@@ -66,6 +66,11 @@ const paymentSchema = new mongoose.Schema(
       default: "",
     },
 
+    inspectionCertificates: {
+      type: mongoose.Schema.Types.Mixed,
+      default: [],
+    },
+
     blockchainRecord: {
       hash: String,
       transactionSignature: String,

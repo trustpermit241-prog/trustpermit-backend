@@ -70,6 +70,16 @@ router.post("/schedule", protect, async (req, res) => {
       });
     }
 
+    const application = await Application.findOne({
+      $or: [
+        { citizenId: citizen._id },
+        { userId: citizen._id },
+        { "applicant.email": citizen.email },
+        { "contact.email": citizen.email },
+        { email: citizen.email },
+      ],
+    }).sort({ createdAt: -1 });
+
 
     // Assign dummy inspector based on type
     const inspectorMap = {
@@ -84,6 +94,7 @@ router.post("/schedule", protect, async (req, res) => {
     // Create inspection
     const inspection = new Inspection({
       citizenId: citizen._id,
+      applicationId: application?._id || null,
       type,
       date: scheduledAt,
       remarks: remarks || "",
@@ -104,25 +115,10 @@ router.post("/schedule", protect, async (req, res) => {
       { path: "scheduledBy", select: "fullName email role" },
     ]);
 
-    let application = null;
-    if (citizen._id) {
-      application = await Application.findOne({
-        $or: [
-          { citizenId: citizen._id },
-          { userId: citizen._id },
-          { "applicant.email": citizen.email },
-          { "contact.email": citizen.email },
-          { email: citizen.email },
-        ],
-      })
-        .sort({ createdAt: -1 })
-        .lean();
-    }
-
     res.status(201).json({
       message: "Inspection scheduled successfully",
       inspection,
-      application,
+      application: application?.toObject ? application.toObject() : application,
     });
   } catch (err) {
     console.error("Schedule Inspection Error:", err);
@@ -173,7 +169,7 @@ router.get("/my", protect, async (req, res) => {
 });
 
 // ================= GET SINGLE INSPECTION BY ID =================
-router.get("/:id", protect, async (req, res) => {
+router.get("/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -229,7 +225,11 @@ router.get("/:id", protect, async (req, res) => {
 // ================= GET ALL INSPECTIONS (STAFF) =================
 router.get("/", protect, async (req, res) => {
   try {
-    const inspections = await Inspection.find()
+    const staffId = req.user._id || req.user.id;
+
+    const inspections = await Inspection.find({
+      scheduledBy: staffId,
+    })
       .populate({ path: "citizenId", select: "fullName email" })
       .sort({ date: 1 });
 
@@ -281,9 +281,19 @@ router.patch("/:id/status", protect, async (req, res) => {
       return res.status(400).json({ message: "Invalid inspection ID" });
     }
 
+    const certificateUrl = status === "Approved"
+      ? `${(process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "")}/inspection-certificate/${id}`
+      : "";
+
     const inspection = await Inspection.findByIdAndUpdate(
       id,
-      { status },
+      {
+        $set: {
+          status,
+          certificateUrl,
+          certificateIssuedAt: status === "Approved" ? new Date() : null,
+        },
+      },
       { new: true }
     ).populate([
       { path: "citizenId", select: "fullName email role" },

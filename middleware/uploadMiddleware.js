@@ -1,10 +1,9 @@
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const getWritableUploadsDir = require('../utils/uploadStorage');
 
-const uploadRoot = process.env.UPLOADS_DIR
-  ? path.resolve(process.env.UPLOADS_DIR)
-  : path.join(__dirname, '../uploads');
+const uploadRoot = getWritableUploadsDir();
 const uploadDirectory = path.join(uploadRoot, 'documents');
 
 if (!fs.existsSync(uploadDirectory)) {

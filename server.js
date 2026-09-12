@@ -10,6 +10,7 @@ const { Server } = require("socket.io");
 const path = require("path");
 const fs = require("fs");
 require("dotenv").config();
+const getWritableUploadsDir = require("./utils/uploadStorage");
 
 if (
   process.env.NODE_ENV === "production" &&
@@ -71,9 +72,7 @@ const authLimiter = rateLimit({
 });
 
 // ===================== ENSURE UPLOAD FOLDERS EXIST =====================
-const uploadsDir = process.env.UPLOADS_DIR
-  ? path.resolve(process.env.UPLOADS_DIR)
-  : path.join(__dirname, "uploads");
+const uploadsDir = getWritableUploadsDir();
 const documentsDir = path.join(uploadsDir, "documents");
 
 if (process.env.NODE_ENV === "production" && !process.env.UPLOADS_DIR) {

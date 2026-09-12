@@ -7,12 +7,11 @@ const mongoose = require("mongoose");
 const UploadedDocument = require("../models/UploadedDocument");
 const Application = require("../models/Application");
 const authMiddleware = require("../middleware/authMiddleware");
+const getWritableUploadsDir = require("../utils/uploadStorage");
 
 const router = express.Router();
 
-const uploadRoot = process.env.UPLOADS_DIR
-  ? path.resolve(process.env.UPLOADS_DIR)
-  : path.join(__dirname, "../uploads");
+const uploadRoot = getWritableUploadsDir();
 const uploadDir = path.join(uploadRoot, "documents");
 
 if (!fs.existsSync(uploadDir)) {

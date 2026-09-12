@@ -1,39 +1,41 @@
 const express = require("express");
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
 const mongoose = require("mongoose");
+const cloudinary = require("cloudinary").v2;
+const streamifier = require("streamifier");
 
 const UploadedDocument = require("../models/UploadedDocument");
 const Application = require("../models/Application");
 const authMiddleware = require("../middleware/authMiddleware");
-const getWritableUploadsDir = require("../utils/uploadStorage");
 
 const router = express.Router();
 
-const uploadRoot = getWritableUploadsDir();
-const uploadDir = path.join(uploadRoot, "documents");
-
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-
-  filename: (req, file, cb) => {
-    const safeName = file.originalname.replace(/\s+/g, "-");
-    cb(null, `${Date.now()}-${safeName}`);
-  },
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024,
   },
+});
+
+const uploadToCloudinary = (file) => new Promise((resolve, reject) => {
+  const stream = cloudinary.uploader.upload_stream(
+    {
+      folder: "trustpermit/documents",
+      resource_type: "auto",
+    },
+    (error, result) => {
+      if (error) reject(error);
+      else resolve(result);
+    }
+  );
+
+  streamifier.createReadStream(file.buffer).pipe(stream);
 });
 
 // ===================== UPLOAD DOCUMENTS =====================
@@ -71,17 +73,28 @@ router.post("/", authMiddleware, upload.array("documents"), async (req, res) => 
       ? req.body.documentNames
       : [req.body.documentNames];
 
-    const documents = req.files.map((file, index) => ({
-      applicationId: application._id,
-      documentName: documentNames[index] || file.originalname,
-      originalName: file.originalname,
-      fileName: file.filename,
-      filePath: `/uploads/documents/${file.filename}`,
-      mimeType: file.mimetype,
-      size: file.size,
-      uploadedBy: req.user?._id || req.user?.id,
-      status: "Pending",
-    }));
+    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+      return res.status(503).json({
+        message: "Cloudinary storage is not configured on the server",
+      });
+    }
+
+    const cloudinaryFiles = await Promise.all(req.files.map(uploadToCloudinary));
+    const documents = req.files.map((file, index) => {
+      const cloudinaryFile = cloudinaryFiles[index];
+
+      return {
+        applicationId: application._id,
+        documentName: documentNames[index] || file.originalname,
+        originalName: file.originalname,
+        fileName: cloudinaryFile.public_id,
+        filePath: cloudinaryFile.secure_url,
+        mimeType: file.mimetype,
+        size: file.size,
+        uploadedBy: req.user?._id || req.user?.id,
+        status: "Pending",
+      };
+    });
 
     const savedDocuments = await UploadedDocument.insertMany(documents);
 

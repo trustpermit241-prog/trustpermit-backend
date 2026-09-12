@@ -87,7 +87,8 @@ router.post("/schedule", protect, async (req, res) => {
       "Sanitary Inspection": "Maria Santos",
       "Building & Electrical": "Jose Ramos",
       "Locational / Zoning": "Ana Lopez",
-      "Environmental": "Pedro Garcia"
+      "Environmental": "Pedro Garcia",
+      "City Vet Clearance Certificate": "Dr. Maria Reyes"
     };
     const inspector = inspectorMap[type] || "Default Inspector";
 

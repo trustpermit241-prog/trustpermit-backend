@@ -197,6 +197,20 @@ router.put("/:id/approve-release", async (req, res) => {
     payment.permitReleased = true;
     payment.permitReleasedAt = new Date();
     payment.inspectionCertificates = inspectionCertificates;
+    payment.releasedDocuments = [
+      {
+        key: "barangay-clearance",
+        label: "Barangay Clearance",
+        status: "Released",
+        releasedAt: payment.permitReleasedAt,
+      },
+      {
+        key: "work-permit",
+        label: "Work Permit",
+        status: "Released",
+        releasedAt: payment.permitReleasedAt,
+      },
+    ];
 
     let application = null;
     let blockchainRecord = null;
@@ -215,6 +229,10 @@ router.put("/:id/approve-release", async (req, res) => {
           $set: {
             status: "Released",
             expiryDate,
+            "requirements.barangay_clearance": "Approved",
+            "requirements.work_permit": "Approved",
+            "documentStatuses.Barangay Clearance": "Approved",
+            "documentStatuses.Work Permit": "Approved",
           },
         },
         { new: true }

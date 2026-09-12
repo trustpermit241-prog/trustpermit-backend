@@ -71,6 +71,18 @@ const paymentSchema = new mongoose.Schema(
       default: [],
     },
 
+    releasedDocuments: {
+      type: [
+        {
+          key: String,
+          label: String,
+          status: String,
+          releasedAt: Date,
+        },
+      ],
+      default: [],
+    },
+
     blockchainRecord: {
       hash: String,
       transactionSignature: String,

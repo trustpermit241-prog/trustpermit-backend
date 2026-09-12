@@ -123,6 +123,7 @@ const applicationSchema = new mongoose.Schema(
     requirements: {
       locational_clearance: String,
       barangay_clearance: String,
+      work_permit: String,
       fire_safety_certification: String,
       building_permit: String,
       wiring_permit: String,

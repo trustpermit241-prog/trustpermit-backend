@@ -64,6 +64,16 @@ const userSchema = new mongoose.Schema(
       unique: true,
       sparse: true,
     },
+
+    activeSessionId: {
+      type: String,
+      default: null,
+    },
+
+    activeSessionExpiresAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

@@ -38,12 +38,44 @@ module.exports = async (req, res, next) => {
       });
     }
 
+    if (user.role === 'staff') {
+      const now = new Date();
+      if (
+        !decoded.sid ||
+        user.activeSessionId !== decoded.sid ||
+        !user.activeSessionExpiresAt ||
+        user.activeSessionExpiresAt <= now
+      ) {
+        return res.status(401).json({
+          success: false,
+          message: 'This staff session has ended. Please log in again.',
+        });
+      }
+
+      const refreshedSession = await User.updateOne(
+        {
+          _id: user._id,
+          activeSessionId: decoded.sid,
+          activeSessionExpiresAt: { $gt: now },
+        },
+        { $set: { activeSessionExpiresAt: new Date(now.getTime() + 30 * 60 * 1000) } }
+      );
+
+      if (refreshedSession.matchedCount !== 1) {
+        return res.status(401).json({
+          success: false,
+          message: 'This staff session has ended. Please log in again.',
+        });
+      }
+    }
+
     req.user = {
       id: user._id,
       _id: user._id,
       role: user.role,
       email: user.email,
       fullName: user.fullName,
+      sessionId: decoded.sid,
     };
 
     return next();

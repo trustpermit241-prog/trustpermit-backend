@@ -29,6 +29,36 @@ const addNotification = async (items, item) => {
   }
 };
 
+const formatInspectionLabel = (inspection) => {
+  const rawType = inspection?.type || inspection?.inspectionType || "Inspection";
+  const text = String(rawType).trim();
+  if (!text) return "Inspection";
+  return text;
+};
+
+const getApplicationStatusMessage = (application) => {
+  const status = String(application?.status || "").toLowerCase();
+
+  if (status === "approved") return "Your application has been approved.";
+  if (status === "rejected") return "Your application has been rejected.";
+  if (status === "submitted" || status === "pending" || status === "in review" || status === "processing") {
+    return "Your application has been successfully submitted.";
+  }
+
+  return `Your application status is ${application?.status || "pending"}.`;
+};
+
+const getInspectionStatusMessage = (inspection) => {
+  const inspectionLabel = formatInspectionLabel(inspection);
+  const status = String(inspection?.status || "").toLowerCase();
+
+  if (status === "approved") return `Your inspection for ${inspectionLabel} has been approved.`;
+  if (status === "rejected" || status === "denied" || status === "failed") return `Your inspection for ${inspectionLabel} has been rejected.`;
+  if (status === "scheduled" || status === "pending" || status === "assigned") return `${inspectionLabel} has been set.`;
+
+  return `${inspectionLabel} has been updated.`;
+};
+
 const syncCitizenNotifications = async (user, items) => {
   const [applications, inspections, payments] = await Promise.all([
     Application.find({ $or: [{ userId: user._id }, { citizenId: user._id }] }).lean(),
@@ -51,11 +81,12 @@ const syncCitizenNotifications = async (user, items) => {
   }
 
   for (const inspection of inspections) {
-    const rejected = ["rejected", "denied", "failed"].includes(String(inspection.status || "").toLowerCase());
+    const status = String(inspection.status || "").toLowerCase();
+    const rejected = ["rejected", "denied", "failed"].includes(status);
     await addNotification(items, {
       recipientId: user._id, audienceRole: "citizen", sourceKey: `inspection-${inspection._id}`,
       type: "inspection", title: "Inspection Update",
-      message: `${rejected ? "Inspection was rejected" : "Inspection scheduled"}${inspection.date ? ` for ${new Date(inspection.date).toLocaleDateString()}` : ""}${inspection.type ? ` (${inspection.type})` : ""}.`,
+      message: getInspectionStatusMessage(inspection),
       icon: rejected ? "warning" : "inspection", link: "/account",
       occurredAt: asDate(inspection.updatedAt, inspection.createdAt, inspection.date),
     });
@@ -65,7 +96,7 @@ const syncCitizenNotifications = async (user, items) => {
     await addNotification(items, {
       recipientId: user._id, audienceRole: "citizen", sourceKey: `application-${application._id}`,
       type: "application", title: "Application Update",
-      message: `${application.applicationType || "Application"} ${application.status || "Pending"} for Permit #${application.permitId || application._id}`,
+      message: getApplicationStatusMessage(application),
       icon: "application", link: "/account",
       occurredAt: asDate(application.updatedAt, application.createdAt),
     });
@@ -80,9 +111,9 @@ const syncStaffNotifications = async (role, items) => {
   const audience = { audienceRole: role, recipientId: null };
   const add = (sourceKey, data) => addNotification(items, { ...audience, sourceKey, ...data });
   for (const payment of payments) await add(`payment-${payment._id}`, { type: "payment", title: "New Payment Received", message: `${payment.name || "User"} paid PHP ${Number(payment.amount || 0).toLocaleString()}.`, icon: "payment", link: "/staff/payments", occurredAt: asDate(payment.createdAt, payment.updatedAt) });
-  for (const inspection of inspections) await add(`inspection-${inspection._id}`, { type: "inspection", title: "Inspection Update", message: `${inspection.status || "Pending"} inspection.`, icon: "inspection", link: "/staff/inspection", occurredAt: asDate(inspection.updatedAt, inspection.createdAt) });
+  for (const inspection of inspections) await add(`inspection-${inspection._id}`, { type: "inspection", title: "Inspection Update", message: getInspectionStatusMessage(inspection), icon: "inspection", link: "/staff/inspection", occurredAt: asDate(inspection.updatedAt, inspection.createdAt) });
   for (const user of users) await add(`user-${user._id}`, { type: "user", title: "New Account Created", message: `${user.fullName || user.email || "New user"} created an account.`, icon: "user", link: "/staff/users", occurredAt: asDate(user.createdAt) });
-  for (const application of applications) await add(`application-${application._id}`, { type: "application", title: "New Application", message: `${application.applicationType || "Application"} was submitted.`, icon: "application", link: "/staff/review", occurredAt: asDate(application.createdAt) });
+  for (const application of applications) await add(`application-${application._id}`, { type: "application", title: "New Application", message: getApplicationStatusMessage(application), icon: "application", link: "/staff/review", occurredAt: asDate(application.createdAt) });
   for (const chat of chats) await add(`message-${chat._id}`, { type: "message", title: "New Message", message: `${chat.userName || "User"}: ${chat.lastMessage || "Sent a message"}`, icon: "message", link: "/staff/messages", occurredAt: asDate(chat.updatedAt, chat.createdAt) });
   for (const document of documents) await add(`document-${document._id}`, { type: "document", title: "Uploaded Document", message: `${document.documentName || document.originalName || "A document"} was uploaded.`, icon: "document", link: "/staff/review", occurredAt: asDate(document.createdAt) });
 };

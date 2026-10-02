@@ -227,10 +227,9 @@ router.get("/:id", async (req, res) => {
 router.get("/", protect, async (req, res) => {
   try {
     const staffId = req.user._id || req.user.id;
+    const inspectionFilter = req.user.role === "admin" ? {} : { scheduledBy: staffId };
 
-    const inspections = await Inspection.find({
-      scheduledBy: staffId,
-    })
+    const inspections = await Inspection.find(inspectionFilter)
       .populate({ path: "citizenId", select: "fullName email" })
       .sort({ date: 1 });
 

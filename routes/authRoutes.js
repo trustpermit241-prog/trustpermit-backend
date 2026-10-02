@@ -25,7 +25,7 @@ function generateApiToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
-function generateJwtToken(user) {
+function generateJwtToken(user, sessionId) {
   if (!JWT_SECRET) {
     throw new Error('JWT_SECRET is not configured');
   }
@@ -40,10 +40,45 @@ function generateJwtToken(user) {
       _id: user._id,
       role: user.role,
       email: user.email,
+      ...(sessionId ? { sid: sessionId } : {}),
     },
     JWT_SECRET,
     { expiresIn: '7d' }
   );
+}
+
+async function claimStaffSession(user) {
+  if (user.role !== 'staff') return null;
+
+  const sessionId = crypto.randomUUID();
+  const now = new Date();
+  const claimedUser = await User.findOneAndUpdate(
+    {
+      _id: user._id,
+      role: 'staff',
+      $or: [
+        { activeSessionId: { $exists: false } },
+        { activeSessionId: null },
+        { activeSessionExpiresAt: { $lte: now } },
+      ],
+    },
+    {
+      $set: {
+        activeSessionId: sessionId,
+        activeSessionExpiresAt: new Date(now.getTime() + 30 * 60 * 1000),
+      },
+    },
+    { new: true }
+  );
+
+  return claimedUser ? sessionId : false;
+}
+
+function activeStaffSessionConflict(res) {
+  return res.status(409).json({
+    success: false,
+    message: 'This staff account is already signed in. Please log out from the active session or try again after 30 minutes of inactivity.',
+  });
 }
 
 function createGoogleVerificationToken(payload, verificationCode) {
@@ -125,12 +160,15 @@ router.post('/google', async (req, res) => {
     }
 
     if (existingUser && existingUser.authProvider === 'google') {
+      const sessionId = await claimStaffSession(existingUser);
+      if (sessionId === false) return activeStaffSessionConflict(res);
+
       if (!existingUser.apiToken) {
         existingUser.apiToken = generateApiToken();
         await existingUser.save();
       }
 
-      const token = generateJwtToken(existingUser);
+      const token = generateJwtToken(existingUser, sessionId);
       await SystemLog.create({
         type: 'user',
         message: `${existingUser.fullName || existingUser.email} logged in with Google`,
@@ -250,7 +288,10 @@ router.post('/google/complete', async (req, res) => {
       await user.save();
     }
 
-    const token = generateJwtToken(user);
+    const sessionId = await claimStaffSession(user);
+    if (sessionId === false) return activeStaffSessionConflict(res);
+
+    const token = generateJwtToken(user, sessionId);
     await SystemLog.create({ type: 'user', message: `${user.fullName || user.email} registered with Google`, meta: { userId: user._id, email: user.email, role: user.role } });
     return res.status(201).json({ success: true, message: 'Account registered successfully.', user: { id: user._id, _id: user._id, fullName: user.fullName, email: user.email, role: user.role }, token });
   } catch (error) {
@@ -435,12 +476,15 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    const sessionId = await claimStaffSession(user);
+    if (sessionId === false) return activeStaffSessionConflict(res);
+
     if (!user.apiToken) {
       user.apiToken = generateApiToken();
       await user.save();
     }
 
-    const token = generateJwtToken(user);
+    const token = generateJwtToken(user, sessionId);
 
     await SystemLog.create({
       type: 'user',
@@ -471,6 +515,22 @@ router.post('/login', async (req, res) => {
       message: 'Failed to authenticate user.',
       error: error.message,
     });
+  }
+});
+
+router.post('/logout', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role === 'staff' && req.user.sessionId) {
+      await User.updateOne(
+        { _id: req.user.id, activeSessionId: req.user.sessionId },
+        { $unset: { activeSessionId: 1, activeSessionExpiresAt: 1 } }
+      );
+    }
+
+    return res.status(200).json({ success: true, message: 'Logged out successfully.' });
+  } catch (error) {
+    console.error('LOGOUT ERROR:', error.message);
+    return res.status(500).json({ success: false, message: 'Failed to log out.' });
   }
 });
 

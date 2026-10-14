@@ -19,14 +19,23 @@ router.get("/", protect, async (req, res) => {
   }
 
   try {
-    const limit = Math.min(Number(req.query.limit) || 500, 1000);
-    const records = await AuditTrail.find()
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .lean();
+    const requestedLimit = req.query.limit;
+    const parsedLimit = requestedLimit === undefined || requestedLimit === "" || requestedLimit === "all"
+      ? null
+      : Number(requestedLimit);
 
-    return res.json(
-      records.map((record) => ({
+    const totalRecords = await AuditTrail.countDocuments();
+    const query = AuditTrail.find().sort({ createdAt: -1 });
+
+    if (Number.isFinite(parsedLimit) && parsedLimit > 0) {
+      query.limit(parsedLimit);
+    }
+
+    const records = await query.lean();
+
+    return res.json({
+      total: totalRecords,
+      records: records.map((record) => ({
         _id: record._id,
         type: resourceLabels[record.resource] || record.resource,
         icon: "ti-activity",
@@ -42,8 +51,8 @@ router.get("/", protect, async (req, res) => {
         statusCode: record.statusCode,
         success: record.success,
         meta: record.meta || {},
-      }))
-    );
+      })),
+    });
   } catch (error) {
     console.error("Error fetching audit trail:", error);
     return res.status(500).json({ message: "Failed to load audit trail" });

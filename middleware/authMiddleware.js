@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
 // Ensure JWT_SECRET is set with a fallback for development
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-key-change-in-production';
@@ -38,35 +39,33 @@ module.exports = async (req, res, next) => {
       });
     }
 
-    if (user.role === 'staff') {
-      const now = new Date();
-      if (
-        !decoded.sid ||
-        user.activeSessionId !== decoded.sid ||
-        !user.activeSessionExpiresAt ||
-        user.activeSessionExpiresAt <= now
-      ) {
-        return res.status(401).json({
-          success: false,
-          message: 'This staff session has ended. Please log in again.',
-        });
-      }
+    const now = new Date();
+    if (
+      !decoded.sid ||
+      user.activeSessionId !== decoded.sid ||
+      !user.activeSessionExpiresAt ||
+      user.activeSessionExpiresAt <= now
+    ) {
+      return res.status(401).json({
+        success: false,
+        message: 'This session has ended. Please log in again.',
+      });
+    }
 
-      const refreshedSession = await User.updateOne(
-        {
-          _id: user._id,
-          activeSessionId: decoded.sid,
-          activeSessionExpiresAt: { $gt: now },
-        },
-        { $set: { activeSessionExpiresAt: new Date(now.getTime() + 30 * 60 * 1000) } }
-      );
+    const refreshedSession = await User.updateOne(
+      {
+        _id: user._id,
+        activeSessionId: decoded.sid,
+        activeSessionExpiresAt: { $gt: now },
+      },
+      { $set: { activeSessionExpiresAt: new Date(now.getTime() + SESSION_IDLE_TIMEOUT_MS) } }
+    );
 
-      if (refreshedSession.matchedCount !== 1) {
-        return res.status(401).json({
-          success: false,
-          message: 'This staff session has ended. Please log in again.',
-        });
-      }
+    if (refreshedSession.matchedCount !== 1) {
+      return res.status(401).json({
+        success: false,
+        message: 'This session has ended. Please log in again.',
+      });
     }
 
     req.user = {

@@ -9,6 +9,7 @@ const { OAuth2Client } = require('google-auth-library');
 const emailjs = require('@emailjs/nodejs');
 
 const router = express.Router();
+const SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
 // Ensure JWT_SECRET is set with a fallback for development
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-key-change-in-production';
@@ -47,25 +48,24 @@ function generateJwtToken(user, sessionId) {
   );
 }
 
-async function claimStaffSession(user) {
-  if (user.role !== 'staff') return null;
-
+async function claimUserSession(user) {
   const sessionId = crypto.randomUUID();
   const now = new Date();
+  const sessionFilter = { _id: user._id };
+  if (user.role !== 'admin') {
+    sessionFilter.$or = [
+      { activeSessionId: { $exists: false } },
+      { activeSessionId: null },
+      { activeSessionExpiresAt: { $lte: now } },
+    ];
+  }
+
   const claimedUser = await User.findOneAndUpdate(
-    {
-      _id: user._id,
-      role: 'staff',
-      $or: [
-        { activeSessionId: { $exists: false } },
-        { activeSessionId: null },
-        { activeSessionExpiresAt: { $lte: now } },
-      ],
-    },
+    sessionFilter,
     {
       $set: {
         activeSessionId: sessionId,
-        activeSessionExpiresAt: new Date(now.getTime() + 30 * 60 * 1000),
+        activeSessionExpiresAt: new Date(now.getTime() + SESSION_IDLE_TIMEOUT_MS),
       },
     },
     { new: true }
@@ -74,10 +74,10 @@ async function claimStaffSession(user) {
   return claimedUser ? sessionId : false;
 }
 
-function activeStaffSessionConflict(res) {
+function activeSessionConflict(res) {
   return res.status(409).json({
     success: false,
-    message: 'This staff account is already signed in. Please log out from the active session or try again after 30 minutes of inactivity.',
+    message: 'This account is already signed in. Please log out from the active session or try again after 15 minutes of inactivity.',
   });
 }
 
@@ -160,8 +160,8 @@ router.post('/google', async (req, res) => {
     }
 
     if (existingUser && existingUser.authProvider === 'google') {
-      const sessionId = await claimStaffSession(existingUser);
-      if (sessionId === false) return activeStaffSessionConflict(res);
+      const sessionId = await claimUserSession(existingUser);
+      if (sessionId === false) return activeSessionConflict(res);
 
       if (!existingUser.apiToken) {
         existingUser.apiToken = generateApiToken();
@@ -288,8 +288,8 @@ router.post('/google/complete', async (req, res) => {
       await user.save();
     }
 
-    const sessionId = await claimStaffSession(user);
-    if (sessionId === false) return activeStaffSessionConflict(res);
+    const sessionId = await claimUserSession(user);
+    if (sessionId === false) return activeSessionConflict(res);
 
     const token = generateJwtToken(user, sessionId);
     await SystemLog.create({ type: 'user', message: `${user.fullName || user.email} registered with Google`, meta: { userId: user._id, email: user.email, role: user.role } });
@@ -476,8 +476,8 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    const sessionId = await claimStaffSession(user);
-    if (sessionId === false) return activeStaffSessionConflict(res);
+    const sessionId = await claimUserSession(user);
+    if (sessionId === false) return activeSessionConflict(res);
 
     if (!user.apiToken) {
       user.apiToken = generateApiToken();
@@ -518,9 +518,13 @@ router.post('/login', async (req, res) => {
   }
 });
 
+router.get('/session', authMiddleware, (req, res) => {
+  return res.status(200).json({ success: true });
+});
+
 router.post('/logout', authMiddleware, async (req, res) => {
   try {
-    if (req.user.role === 'staff' && req.user.sessionId) {
+    if (req.user.sessionId) {
       await User.updateOne(
         { _id: req.user.id, activeSessionId: req.user.sessionId },
         { $unset: { activeSessionId: 1, activeSessionExpiresAt: 1 } }
